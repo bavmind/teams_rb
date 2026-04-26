@@ -1,0 +1,84 @@
+# teams_rb
+
+Ruby SDK for receiving and sending Microsoft Teams bot messages from Rack/Rails apps.
+
+This first MVP targets the production message-bot path:
+
+- Rack endpoint for Teams messages
+- Inbound Teams request validation enabled by default
+- Message routing with `on_message`
+- Replies and proactive sends through the Teams API
+- Faraday HTTP client
+- Minitest test suite
+
+Current live status: receiving a Teams message and replying through Bot Framework has been verified with a Dev Tunnel and Microsoft Teams install.
+
+## Local Usage
+
+From another Ruby app:
+
+```ruby
+gem "teams_rb", path: "../teams_rb"
+```
+
+Then:
+
+```ruby
+require "teams"
+
+teams = Teams::App.new
+
+teams.on_message do |ctx|
+  ctx.typing
+  puts ctx.ref.conversation_id
+  ctx.reply "reply: #{ctx.activity.text.inspect}"
+  ctx.post "post: #{ctx.activity.text.inspect}"
+end
+
+run teams.to_rack
+```
+
+More Rack examples live in `examples/`.
+
+The Teams messaging endpoint defaults to `/api/messages`, matching the TypeScript and Python SDK defaults. If your app needs another path, configure it on the app and register the same full URL with Teams:
+
+```ruby
+teams = Teams::App.new(messaging_endpoint: "/bot/incoming")
+run teams.to_rack
+```
+
+Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams quote block, matching the Microsoft SDK behavior.
+
+`ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
+
+For formatted text, use a message activity with `text_format`:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("plain text", text_format: "plain")
+ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
+ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
+```
+
+For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
+
+```ruby
+card = Teams::Cards::AdaptiveCard.new(
+  Teams::Cards::TextBlock.new("Create ticket", weight: "Bolder", size: "Large", wrap: true),
+  Teams::Cards::TextInput.new(id: "title", label: "Title", is_required: true),
+  actions: [
+    Teams::Cards::SubmitAction.new(title: "Create", data: { action: "create_ticket" })
+  ]
+)
+
+ctx.post card
+ctx.reply card
+ctx.post Teams::Api::MessageActivity.new.add_card(card)
+```
+
+For local tests only:
+
+```ruby
+teams = Teams::App.new(skip_auth: true)
+```
+
+Production apps should provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`.
