@@ -10,6 +10,7 @@ module Teams
   class ServiceUrlError < Error; end
 
   class BadRequestError < Error; end
+  class StreamCancelledError < Error; end
 
   class HttpError < Error
     attr_reader :status, :headers, :body, :request

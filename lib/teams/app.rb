@@ -71,10 +71,18 @@ module Teams
       validate_service_url!(activity)
 
       conversation_reference = Api::ConversationReference.from_activity(activity)
-      context = ActivityContext.new(app: self, activity:, conversation_reference:)
+      context = ActivityContext.new(
+        app: self,
+        activity:,
+        conversation_reference:,
+        stream: HttpStream.new(app: self, conversation_reference:)
+      )
       result = run_handlers(context)
+      context.stream.close
 
       result.is_a?(Response) ? result : Response.new(status: 200)
+    rescue StreamCancelledError
+      Response.new(status: 200)
     end
 
     # The TypeScript, Python, and .NET SDKs call this operation `send`.

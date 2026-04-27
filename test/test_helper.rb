@@ -19,13 +19,23 @@ class FakeApi
   end
 
   def send_to_conversation(conversation_id, activity, service_url: nil)
-    @sent << [conversation_id, activity.respond_to?(:to_h) ? activity.to_h : activity, service_url]
-    { "id" => "sent-id" }
+    payload = activity.respond_to?(:to_h) ? activity.to_h : activity
+    snapshot = Marshal.load(Marshal.dump(payload))
+    @sent << [conversation_id, snapshot, service_url]
+    { "id" => stream_id_for(payload) || "sent-#{@sent.length}" }
   end
 
   def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)
-    @replies << [conversation_id, activity_id, activity.respond_to?(:to_h) ? activity.to_h : activity, service_url]
+    payload = activity.respond_to?(:to_h) ? activity.to_h : activity
+    snapshot = Marshal.load(Marshal.dump(payload))
+    @replies << [conversation_id, activity_id, snapshot, service_url]
     { "id" => "reply-id" }
+  end
+
+  private
+
+  def stream_id_for(payload)
+    Array(payload["entities"]).find { |entity| entity["type"] == "streaminfo" }&.fetch("streamId", nil)
   end
 end
 

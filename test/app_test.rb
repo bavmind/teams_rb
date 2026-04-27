@@ -219,4 +219,80 @@ class AppTest < Minitest::Test
 
     assert_equal 401, last_response.status
   end
+
+  def test_stream_emits_cumulative_typing_chunks_and_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.emit "Hello"
+      ctx.stream.emit ", world"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 3, @api.sent.size
+
+    first = @api.sent[0][1]
+    second = @api.sent[1][1]
+    final = @api.sent[2][1]
+
+    assert_equal "typing", first["type"]
+    assert_equal "Hello", first["text"]
+    assert_equal 1, first.dig("channelData", "streamSequence")
+    assert_equal "streaming", first.dig("channelData", "streamType")
+    assert_equal "streaminfo", first["entities"].first["type"]
+
+    assert_equal "typing", second["type"]
+    assert_equal "Hello, world", second["text"]
+    assert_equal "sent-1", second["id"]
+    assert_equal "sent-1", second.dig("channelData", "streamId")
+    assert_equal 2, second.dig("channelData", "streamSequence")
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello, world", final["text"]
+    assert_equal "sent-1", final["id"]
+    assert_equal "final", final.dig("channelData", "streamType")
+    refute final.dig("channelData", "streamSequence")
+    assert_equal({ "type" => "streaminfo", "streamId" => "sent-1", "streamType" => "final" }, final["entities"].first)
+  end
+
+  def test_stream_update_sends_informative_chunk_before_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.update "Thinking..."
+      ctx.stream.emit "Hello"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 3, @api.sent.size
+
+    informative = @api.sent[0][1]
+    chunk = @api.sent[1][1]
+    final = @api.sent[2][1]
+
+    assert_equal "typing", informative["type"]
+    assert_equal "Thinking...", informative["text"]
+    assert_equal "informative", informative.dig("channelData", "streamType")
+    assert_equal 1, informative.dig("channelData", "streamSequence")
+
+    assert_equal "typing", chunk["type"]
+    assert_equal "Hello", chunk["text"]
+    assert_equal 2, chunk.dig("channelData", "streamSequence")
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+  end
+
+  def test_stream_update_without_message_does_not_send_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.update "Thinking..."
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.sent.size
+    assert_equal "typing", @api.sent.first[1]["type"]
+    assert_equal "Thinking...", @api.sent.first[1]["text"]
+  end
 end

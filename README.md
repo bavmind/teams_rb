@@ -59,6 +59,16 @@ ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown"
 ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
 ```
 
+For streamed responses, use `ctx.stream`:
+
+```ruby
+teams.on_message do |ctx|
+  ctx.stream.update("Thinking...")
+  ctx.stream.emit("Hello")
+  ctx.stream.emit(", world")
+end
+```
+
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
 
 ```ruby
