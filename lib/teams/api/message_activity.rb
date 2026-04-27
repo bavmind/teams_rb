@@ -4,6 +4,7 @@ module Teams
   module Api
     class MessageActivity
       TEXT_FORMATS = %w[plain markdown xml].freeze
+      AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
       attr_reader :text, :attachments, :text_format, :summary, :input_hint
 
@@ -13,6 +14,7 @@ module Teams
         @text_format = normalize_text_format(text_format)
         @summary = summary
         @input_hint = input_hint
+        @entities = []
       end
 
       def add_card(card)
@@ -28,6 +30,15 @@ module Teams
         self
       end
 
+      def add_ai_generated
+        entity = ensure_single_root_level_message_entity
+        additional_types = Array(entity["additionalType"])
+        return self if additional_types.include?("AIGeneratedContent")
+
+        entity["additionalType"] = additional_types + ["AIGeneratedContent"]
+        self
+      end
+
       def to_h
         body = { "type" => "message" }
         body["text"] = text if text
@@ -35,10 +46,24 @@ module Teams
         body["summary"] = summary if summary
         body["inputHint"] = input_hint if input_hint
         body["attachments"] = attachments unless attachments.empty?
+        body["entities"] = @entities unless @entities.empty?
         body
       end
 
       private
+
+      def ensure_single_root_level_message_entity
+        entity = @entities.find { |item| item["type"] == AI_MESSAGE_ENTITY_TYPE }
+        return entity if entity
+
+        entity = {
+          "type" => AI_MESSAGE_ENTITY_TYPE,
+          "@type" => "Message",
+          "@context" => "https://schema.org"
+        }
+        @entities << entity
+        entity
+      end
 
       def normalize_text_format(value)
         return nil if value.nil?

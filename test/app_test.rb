@@ -6,8 +6,10 @@ class AppTest < Minitest::Test
   include Rack::Test::Methods
 
   def setup
+    @log_output = StringIO.new
+    @logger = Logger.new(@log_output)
     @api = FakeApi.new
-    @teams = Teams::App.new(api: @api, skip_auth: true)
+    @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
   end
 
   def app
@@ -57,7 +59,7 @@ class AppTest < Minitest::Test
   end
 
   def test_custom_messaging_endpoint
-    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming")
+    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming", logger: @logger)
     @teams.on_message { |ctx| ctx.post "custom route" }
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
@@ -294,5 +296,29 @@ class AppTest < Minitest::Test
     assert_equal 1, @api.sent.size
     assert_equal "typing", @api.sent.first[1]["type"]
     assert_equal "Thinking...", @api.sent.first[1]["text"]
+  end
+
+  def test_stream_final_message_can_add_ai_generated_label
+    @teams.on_message do |ctx|
+      ctx.stream.emit "Hello"
+      ctx.stream.emit Teams::Api::MessageActivity.new.add_ai_generated
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+    assert_equal(
+      {
+        "type" => "https://schema.org/Message",
+        "@type" => "Message",
+        "@context" => "https://schema.org",
+        "additionalType" => ["AIGeneratedContent"]
+      },
+      final["entities"].find { |entity| entity["type"] == "https://schema.org/Message" }
+    )
   end
 end

@@ -7,6 +7,7 @@ require "rack/test"
 require "json"
 require "openssl"
 require "base64"
+require "stringio"
 require "teams"
 
 class FakeApi

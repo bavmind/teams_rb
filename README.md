@@ -69,6 +69,17 @@ teams.on_message do |ctx|
 end
 ```
 
+To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
+
+```ruby
+teams.on_message do |ctx|
+  ctx.stream.update("Thinking...")
+  ctx.stream.emit("Hello")
+  ctx.stream.emit("! I'm a friendly AI bot. ")
+  ctx.stream.emit(Teams::Api::MessageActivity.new.add_ai_generated)
+end
+```
+
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
 
 ```ruby
