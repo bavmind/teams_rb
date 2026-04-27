@@ -7,7 +7,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Inoffical Ruby SDK for Microsoft Teams message bots"
   spec.description = "A Ruby-native SDK for receiving and sending Microsoft Teams bot messages from Rack/Rails apps."
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 4.0.2"
+  spec.required_ruby_version = ">= 4.0.0"
 
   spec.files = Dir["lib/**/*", "README.md", "PORT*.md"]
   spec.require_paths = ["lib"]
