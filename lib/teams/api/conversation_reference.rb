@@ -35,10 +35,10 @@ module Teams
 
       def initialize(activity_id: nil, user: nil, locale: nil, bot:, conversation:, channel_id:, service_url:)
         @activity_id = activity_id
-        @user = wrap_hash(user)
+        @user = wrap_account(user)
         @locale = locale
-        @bot = wrap_hash(bot)
-        @conversation = wrap_hash(conversation)
+        @bot = wrap_account(bot)
+        @conversation = wrap_conversation(conversation)
         @channel_id = channel_id
         @service_url = service_url
       end
@@ -66,11 +66,17 @@ module Teams
 
       private
 
-      def wrap_hash(value)
-        return value if value.is_a?(HashObject)
+      def wrap_account(value)
+        return value if value.is_a?(Account)
         return nil if value.nil?
 
-        HashObject.new(value)
+        Account.new(value)
+      end
+
+      def wrap_conversation(value)
+        return value if value.is_a?(ConversationAccount)
+
+        ConversationAccount.new(value)
       end
     end
   end

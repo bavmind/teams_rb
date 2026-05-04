@@ -32,7 +32,7 @@ teams.on_message do |ctx|
     ## Conversation
 
     1. **Conversation ID:** `#{ref.conversation_id}`
-    2. **Type:** `#{ref.conversation.conversationType}`
+    2. **Type:** `#{ref.conversation.conversation_type}`
     3. **Tenant:** `#{tenant_id}`
 
     ## Message

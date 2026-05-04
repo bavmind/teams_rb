@@ -1,7 +1,13 @@
 # frozen_string_literal: true
 
 module Teams
-  class Activity < HashObject
+  class Activity
+    attr_reader :raw
+
+    def initialize(raw = {})
+      @raw = normalize_hash(raw)
+    end
+
     def type
       raw["type"]
     end
@@ -34,21 +40,33 @@ module Teams
       raw["locale"]
     end
 
+    def local_timestamp
+      raw["localTimestamp"] || raw["local_timestamp"]
+    end
+
+    def channel_data
+      Api::ChannelData.new(raw["channelData"] || raw["channel_data"] || {})
+    end
+
     def from
-      HashObject.new(raw["from"] || {})
+      Api::Account.new(raw["from"] || {})
     end
 
     def recipient
-      HashObject.new(raw["recipient"] || {})
+      Api::Account.new(raw["recipient"] || {})
     end
 
     def conversation
-      HashObject.new(raw["conversation"] || {})
+      Api::ConversationAccount.new(raw["conversation"] || {})
     end
 
     def value
       value = raw["value"]
-      value.is_a?(Hash) ? HashObject.new(value) : value
+      value.is_a?(Hash) ? Api::ActivityValue.new(value) : value
+    end
+
+    def to_h
+      raw.dup
     end
 
     def message?
@@ -65,6 +83,27 @@ module Teams
 
     def install_update?
       type == "installationUpdate"
+    end
+
+    private
+
+    def normalize_hash(value)
+      return {} if value.nil?
+
+      value.each_with_object({}) do |(key, item), result|
+        result[key.to_s] = normalize_value(item)
+      end
+    end
+
+    def normalize_value(value)
+      case value
+      when Hash
+        normalize_hash(value)
+      when Array
+        value.map { |item| normalize_value(item) }
+      else
+        value
+      end
     end
   end
 end

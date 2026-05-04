@@ -51,6 +51,22 @@ Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
 
+For modeled Ruby object access, use snake_case field names:
+
+```ruby
+ctx.activity.service_url
+ctx.activity.reply_to_id
+ctx.activity.from.aad_object_id
+ctx.activity.conversation.conversation_type
+```
+
+Raw payload access stays unchanged through `raw` / `to_h`:
+
+```ruby
+ctx.activity.raw["serviceUrl"]
+ctx.activity.raw.dig("from", "aadObjectId")
+```
+
 For formatted text, use a message activity with `text_format`:
 
 ```ruby
