@@ -307,6 +307,8 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
+    assert_equal 2, @api.sent.size
+
     final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
@@ -320,5 +322,31 @@ class AppTest < Minitest::Test
       },
       final["entities"].find { |entity| entity["type"] == "https://schema.org/Message" }
     )
+  end
+
+  def test_stream_final_attachment_without_text_omits_text
+    @teams.on_message do |ctx|
+      ctx.stream.emit(
+        Teams::Api::MessageActivity.new.add_card(
+          "type" => "AdaptiveCard",
+          "version" => "1.6",
+          "body" => [
+            { "type" => "TextBlock", "text" => "Card only" }
+          ]
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.sent.size
+
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    refute final.key?("text")
+    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
+    assert_equal "final", final.dig("channelData", "streamType")
   end
 end
