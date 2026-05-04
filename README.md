@@ -51,12 +51,49 @@ Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
 
+For modeled Ruby object access, use snake_case field names:
+
+```ruby
+ctx.activity.service_url
+ctx.activity.reply_to_id
+ctx.activity.from.aad_object_id
+ctx.activity.conversation.conversation_type
+```
+
+Raw payload access stays unchanged through `raw` / `to_h`:
+
+```ruby
+ctx.activity.raw["serviceUrl"]
+ctx.activity.raw.dig("from", "aadObjectId")
+```
+
 For formatted text, use a message activity with `text_format`:
 
 ```ruby
 ctx.post Teams::Api::MessageActivity.new("plain text", text_format: "plain")
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
+```
+
+For streamed responses, use `ctx.stream`:
+
+```ruby
+teams.on_message do |ctx|
+  ctx.stream.update("Thinking...")
+  ctx.stream.emit("Hello")
+  ctx.stream.emit(", world")
+end
+```
+
+To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
+
+```ruby
+teams.on_message do |ctx|
+  ctx.stream.update("Thinking...")
+  ctx.stream.emit("Hello")
+  ctx.stream.emit("! I'm a friendly AI bot. ")
+  ctx.stream.emit(Teams::Api::MessageActivity.new.add_ai_generated)
+end
 ```
 
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:

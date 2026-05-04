@@ -31,4 +31,28 @@ class MessageActivityTest < Minitest::Test
       Teams::Api::MessageActivity.new("hello", text_format: "html")
     end
   end
+
+  def test_add_ai_generated_adds_root_level_message_entity
+    activity = Teams::Api::MessageActivity.new("Hello!").add_ai_generated
+
+    assert_equal(
+      [
+        {
+          "type" => "https://schema.org/Message",
+          "@type" => "Message",
+          "@context" => "https://schema.org",
+          "additionalType" => ["AIGeneratedContent"]
+        }
+      ],
+      activity.to_h["entities"]
+    )
+  end
+
+  def test_add_ai_generated_is_idempotent
+    activity = Teams::Api::MessageActivity.new("Hello!")
+      .add_ai_generated
+      .add_ai_generated
+
+    assert_equal ["AIGeneratedContent"], activity.to_h["entities"].first["additionalType"]
+  end
 end

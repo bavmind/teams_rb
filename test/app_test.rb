@@ -6,8 +6,10 @@ class AppTest < Minitest::Test
   include Rack::Test::Methods
 
   def setup
+    @log_output = StringIO.new
+    @logger = Logger.new(@log_output)
     @api = FakeApi.new
-    @teams = Teams::App.new(api: @api, skip_auth: true)
+    @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
   end
 
   def app
@@ -57,7 +59,7 @@ class AppTest < Minitest::Test
   end
 
   def test_custom_messaging_endpoint
-    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming")
+    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming", logger: @logger)
     @teams.on_message { |ctx| ctx.post "custom route" }
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
@@ -218,5 +220,105 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert_equal 401, last_response.status
+  end
+
+  def test_stream_emits_cumulative_typing_chunks_and_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.emit "Hello"
+      ctx.stream.emit ", world"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 3, @api.sent.size
+
+    first = @api.sent[0][1]
+    second = @api.sent[1][1]
+    final = @api.sent[2][1]
+
+    assert_equal "typing", first["type"]
+    assert_equal "Hello", first["text"]
+    assert_equal 1, first.dig("channelData", "streamSequence")
+    assert_equal "streaming", first.dig("channelData", "streamType")
+    assert_equal "streaminfo", first["entities"].first["type"]
+
+    assert_equal "typing", second["type"]
+    assert_equal "Hello, world", second["text"]
+    assert_equal "sent-1", second["id"]
+    assert_equal "sent-1", second.dig("channelData", "streamId")
+    assert_equal 2, second.dig("channelData", "streamSequence")
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello, world", final["text"]
+    assert_equal "sent-1", final["id"]
+    assert_equal "final", final.dig("channelData", "streamType")
+    refute final.dig("channelData", "streamSequence")
+    assert_equal({ "type" => "streaminfo", "streamId" => "sent-1", "streamType" => "final" }, final["entities"].first)
+  end
+
+  def test_stream_update_sends_informative_chunk_before_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.update "Thinking..."
+      ctx.stream.emit "Hello"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 3, @api.sent.size
+
+    informative = @api.sent[0][1]
+    chunk = @api.sent[1][1]
+    final = @api.sent[2][1]
+
+    assert_equal "typing", informative["type"]
+    assert_equal "Thinking...", informative["text"]
+    assert_equal "informative", informative.dig("channelData", "streamType")
+    assert_equal 1, informative.dig("channelData", "streamSequence")
+
+    assert_equal "typing", chunk["type"]
+    assert_equal "Hello", chunk["text"]
+    assert_equal 2, chunk.dig("channelData", "streamSequence")
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+  end
+
+  def test_stream_update_without_message_does_not_send_final_message
+    @teams.on_message do |ctx|
+      ctx.stream.update "Thinking..."
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.sent.size
+    assert_equal "typing", @api.sent.first[1]["type"]
+    assert_equal "Thinking...", @api.sent.first[1]["text"]
+  end
+
+  def test_stream_final_message_can_add_ai_generated_label
+    @teams.on_message do |ctx|
+      ctx.stream.emit "Hello"
+      ctx.stream.emit Teams::Api::MessageActivity.new.add_ai_generated
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+    assert_equal(
+      {
+        "type" => "https://schema.org/Message",
+        "@type" => "Message",
+        "@context" => "https://schema.org",
+        "additionalType" => ["AIGeneratedContent"]
+      },
+      final["entities"].find { |entity| entity["type"] == "https://schema.org/Message" }
+    )
   end
 end

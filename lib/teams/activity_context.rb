@@ -2,13 +2,14 @@
 
 module Teams
   class ActivityContext
-    attr_reader :app, :activity, :conversation_reference, :extra
+    attr_reader :app, :activity, :conversation_reference, :extra, :stream
 
-    def initialize(app:, activity:, conversation_reference:, extra: {})
+    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
       @extra = extra
+      @stream = stream
     end
 
     def ref
