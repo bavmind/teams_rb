@@ -37,7 +37,11 @@ module Teams
         http: Common::HttpClient.new(token: -> { @token_manager.bot_token }),
         logger:
       )
-      @jwt_validator = Auth::JwtValidator.new(client_id: @token_manager.client_id, cloud:) if @token_manager.client_id
+      @jwt_validator = Auth::JwtValidator.new(
+        client_id: @token_manager.client_id,
+        tenant_id: @token_manager.credentials&.tenant_id,
+        cloud:
+      ) if @token_manager.client_id
       @service_url_validator = Auth::ServiceUrlValidator.new(cloud:, additional_allowed_domains:)
     end
 
@@ -66,8 +70,8 @@ module Teams
     end
 
     def process_inbound(payload, env: {})
-      validate_inbound!(env)
       activity = Activity.new(payload)
+      validate_inbound!(env, activity)
       validate_service_url!(activity)
 
       conversation_reference = Api::ConversationReference.from_activity(activity)
@@ -134,12 +138,12 @@ module Teams
 
     private
 
-    def validate_inbound!(env)
+    def validate_inbound!(env, activity)
       return if @skip_auth
 
       raise AuthenticationError, "CLIENT_ID is required for inbound validation" unless @jwt_validator
 
-      @jwt_validator.validate!(env["HTTP_AUTHORIZATION"])
+      @jwt_validator.validate!(env["HTTP_AUTHORIZATION"], service_url: activity.service_url)
     end
 
     def validate_service_url!(activity)
