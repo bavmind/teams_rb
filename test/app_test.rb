@@ -187,6 +187,33 @@ class AppTest < Minitest::Test
     assert_equal "markdown", @api.sent.first[1]["textFormat"]
   end
 
+  def test_suggested_action_submit_handler
+    values = []
+
+    @teams.on_suggested_action_submit do |ctx|
+      values << ctx.activity.value.to_h
+      ctx.post "submitted: #{ctx.activity.value.to_h.fetch("choice")}"
+    end
+
+    post "/api/messages", JSON.generate(suggested_action_submit_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [{ "choice" => "approve" }], values
+    assert_equal "submitted: approve", @api.sent.first[1]["text"]
+  end
+
+  def test_suggested_action_submit_generic_route_alias
+    events = []
+
+    @teams.on("invoke") { |_ctx, nxt| events << "invoke"; nxt.call }
+    @teams.on("suggested-action.submit") { |_ctx| events << "suggested-action.submit" }
+
+    post "/api/messages", JSON.generate(suggested_action_submit_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["invoke", "suggested-action.submit"], events
+  end
+
   def test_proactive_reply_sets_reply_to_id
     @teams.reply("conversation-2", "activity-2", "thread reply")
 

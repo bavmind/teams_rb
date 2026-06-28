@@ -38,6 +38,14 @@ end
 run teams.to_rack
 ```
 
+Suggested action submit invokes use the SDK route name and expose the submitted payload through `ctx.activity.value`:
+
+```ruby
+teams.on_suggested_action_submit do |ctx|
+  ctx.post "submitted: #{ctx.activity.value.to_h.inspect}"
+end
+```
+
 More Rack examples live in `examples/`.
 
 The Teams messaging endpoint defaults to `/api/messages`, matching the TypeScript and Python SDK defaults. If your app needs another path, configure it on the app and register the same full URL with Teams:

@@ -69,6 +69,11 @@ module Teams
       self
     end
 
+    def on_suggested_action_submit(&block)
+      @router.on("suggested-action.submit", &block)
+      self
+    end
+
     def process_inbound(payload, env: {})
       activity = Activity.new(payload)
       validate_inbound!(env, activity)

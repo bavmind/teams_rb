@@ -85,6 +85,10 @@ module Teams
       type == "installationUpdate"
     end
 
+    def suggested_action_submit?
+      type == "invoke" && name == "suggestedActions/submit"
+    end
+
     private
 
     def normalize_hash(value)
