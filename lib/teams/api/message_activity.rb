@@ -3,7 +3,7 @@
 module Teams
   module Api
     class MessageActivity
-      TEXT_FORMATS = %w[plain markdown xml].freeze
+      TEXT_FORMATS = %w[plain markdown xml extendedmarkdown].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
       attr_reader :text, :attachments, :text_format, :summary, :input_hint

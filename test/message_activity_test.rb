@@ -12,8 +12,8 @@ class MessageActivityTest < Minitest::Test
     )
   end
 
-  def test_supports_plain_markdown_and_xml
-    %w[plain markdown xml].each do |format|
+  def test_supports_sdk_text_formats
+    %w[plain markdown xml extendedmarkdown].each do |format|
       activity = Teams::Api::MessageActivity.new("hello", text_format: format)
 
       assert_equal format, activity.to_h["textFormat"]

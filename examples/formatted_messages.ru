@@ -16,6 +16,7 @@ teams.on_message do |ctx|
     - plain strings work
     - markdown can format structured bot responses
     - xml is useful when Teams should preserve explicit line breaks
+    - extendedmarkdown is available for Teams extended markdown rendering
   MARKDOWN
 
   ctx.post Teams::Api::MessageActivity.new(<<~XML, text_format: "xml")

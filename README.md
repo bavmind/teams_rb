@@ -73,6 +73,7 @@ For formatted text, use a message activity with `text_format`:
 ctx.post Teams::Api::MessageActivity.new("plain text", text_format: "plain")
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
+ctx.post Teams::Api::MessageActivity.new("extended markdown", text_format: "extendedmarkdown")
 ```
 
 For streamed responses, use `ctx.stream`:

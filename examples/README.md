@@ -16,7 +16,7 @@ https://your-tunnel-url/api/messages
 
 - `config.ru`: default quick echo app.
 - `basic_echo.ru`: typing, reply, and post.
-- `formatted_messages.ru`: plain, markdown, and xml text formats.
+- `formatted_messages.ru`: plain, markdown, xml, and extendedmarkdown text formats.
 - `adaptive_card.ru`: basic `Teams::Cards` Adaptive Card send/reply.
 - `raw_adaptive_card.ru`: raw Adaptive Card JSON-style hash with sample data rendered in Ruby.
 - `conversation_reference.ru`: store and restore `ctx.ref` for later proactive posts.
