@@ -349,4 +349,47 @@ class AppTest < Minitest::Test
     assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
     assert_equal "final", final.dig("channelData", "streamType")
   end
+
+  def test_stream_clear_text_discards_accumulated_text_before_card_final
+    @teams.on_message do |ctx|
+      ctx.stream.emit "discard this"
+      ctx.stream.clear_text
+      ctx.stream.emit(
+        Teams::Api::MessageActivity.new.add_card(
+          "type" => "AdaptiveCard",
+          "version" => "1.6",
+          "body" => [
+            { "type" => "TextBlock", "text" => "Card only" }
+          ]
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 2, @api.sent.size
+
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    refute final.key?("text")
+    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
+    assert_equal "final", final.dig("channelData", "streamType")
+  end
+
+  def test_stream_clear_text_allows_later_text
+    @teams.on_message do |ctx|
+      ctx.stream.emit "discard this"
+      ctx.stream.clear_text
+      ctx.stream.emit "keep this"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "discard this", @api.sent[0][1]["text"]
+    assert_equal "keep this", @api.sent[1][1]["text"]
+    assert_equal "keep this", @api.sent[2][1]["text"]
+  end
 end

@@ -43,6 +43,12 @@ module Teams
       )
     end
 
+    def clear_text
+      @text = +""
+      @queue.reject! { |activity| activity["type"] == "message" }
+      @final_activity = nil
+    end
+
     def close
       return @result if closed
       return nil if canceled
