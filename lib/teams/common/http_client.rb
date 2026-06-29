@@ -23,6 +23,14 @@ module Teams
         request(:post, path, json:, body:, headers:, params:)
       end
 
+      def put(path, json: nil, body: nil, headers: {}, params: nil)
+        request(:put, path, json:, body:, headers:, params:)
+      end
+
+      def delete(path, headers: {}, params: nil)
+        request(:delete, path, headers:, params:)
+      end
+
       def request(method, path, json: nil, body: nil, headers: {}, params: nil)
         resolved_token = resolve_token
         response = connection.public_send(method) do |request|

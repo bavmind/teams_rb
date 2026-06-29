@@ -27,6 +27,10 @@ module Teams
         http.post(url, json: activity_to_h(activity))
       end
 
+      def reactions
+        @reactions ||= ReactionClient.new(service_url:, http:)
+      end
+
       private
 
       def activity_to_h(activity)

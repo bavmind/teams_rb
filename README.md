@@ -46,6 +46,13 @@ teams.on_suggested_action_submit do |ctx|
 end
 ```
 
+Reactions use the API client shape from the Microsoft SDKs:
+
+```ruby
+teams.api.reactions.add(conversation_id, activity_id, "like")
+teams.api.reactions.delete(conversation_id, activity_id, "like")
+```
+
 More Rack examples live in `examples/`.
 
 The Teams messaging endpoint defaults to `/api/messages`, matching the TypeScript and Python SDK defaults. If your app needs another path, configure it on the app and register the same full URL with Teams:
