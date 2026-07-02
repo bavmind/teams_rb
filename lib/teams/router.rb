@@ -52,6 +52,7 @@ module Teams
         return true if name == "message" && activity.message?
         return true if name == "typing" && activity.typing?
         return true if name == "invoke" && activity.invoke?
+        return true if name == "suggested-action.submit" && activity.suggested_action_submit?
 
         if activity.install_update?
           return true if name == "install.#{activity.raw["action"]}"

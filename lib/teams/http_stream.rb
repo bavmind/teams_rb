@@ -43,6 +43,12 @@ module Teams
       )
     end
 
+    def clear_text
+      @text = +""
+      @queue.reject! { |activity| activity["type"] == "message" }
+      @final_activity = nil
+    end
+
     def close
       return @result if closed
       return nil if canceled
@@ -55,7 +61,11 @@ module Teams
       activity = (@final_activity || { "type" => "message" }).dup
       activity["type"] = "message"
       activity["id"] = @id if @id
-      activity["text"] = @text
+      if !@text.empty? || activity.key?("text")
+        activity["text"] = @text
+      else
+        activity.delete("text")
+      end
 
       channel_data = merge_channel_data(activity["channelData"], "streamType" => "final")
       channel_data.delete("streamSequence")
@@ -97,11 +107,13 @@ module Teams
 
         next unless activity["type"] == "message"
 
-        @text << activity["text"].to_s if activity.key?("text")
+        text = activity["text"].to_s if activity.key?("text")
+        @text << text if text
         @final_activity = activity
         @channel_data = merge_channel_data(activity["channelData"])
 
         next if @text.empty?
+        next if text.nil? || text.empty?
 
         send_stream_chunk(
           "type" => "typing",

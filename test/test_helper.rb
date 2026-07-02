@@ -97,3 +97,27 @@ def teams_payload(text: "hello", service_url: "https://smba.trafficmanager.net/t
     "text" => text
   }
 end
+
+def quoted_teams_payload
+  teams_payload.merge(
+    "entities" => [
+      {
+        "type" => "quotedReply",
+        "quotedReply" => {
+          "messageId" => "quoted-1",
+          "senderId" => "user-2",
+          "senderName" => "User Two",
+          "preview" => "previous message"
+        }
+      }
+    ]
+  )
+end
+
+def suggested_action_submit_payload(value: { "choice" => "approve" })
+  teams_payload.merge(
+    "type" => "invoke",
+    "name" => "suggestedActions/submit",
+    "value" => value
+  )
+end

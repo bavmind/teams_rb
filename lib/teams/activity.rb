@@ -65,6 +65,16 @@ module Teams
       value.is_a?(Hash) ? Api::ActivityValue.new(value) : value
     end
 
+    def entities
+      Array(raw["entities"])
+    end
+
+    def get_quoted_messages
+      entities
+        .select { |entity| entity.is_a?(Hash) && entity["type"] == "quotedReply" }
+        .map { |entity| Api::QuotedReplyEntity.new(entity) }
+    end
+
     def to_h
       raw.dup
     end
@@ -83,6 +93,10 @@ module Teams
 
     def install_update?
       type == "installationUpdate"
+    end
+
+    def suggested_action_submit?
+      type == "invoke" && name == "suggestedActions/submit"
     end
 
     private

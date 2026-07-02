@@ -30,8 +30,11 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
     assert_equal "activity-1", @api.sent.first[1]["replyToId"]
-    assert_includes @api.sent.first[1]["text"], "echo: hello"
-    assert_includes @api.sent.first[1]["text"], "<blockquote"
+    assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
+    assert_equal(
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
+      @api.sent.first[1]["entities"]
+    )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
     assert_equal({ "id" => "user-1", "name" => "User One", "aadObjectId" => "aad-1" }, @api.sent.first[1]["recipient"])
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
@@ -48,6 +51,21 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal 1, @api.sent.size
     assert_equal "matched", @api.sent.first[1]["text"]
+  end
+
+  def test_activity_get_quoted_messages
+    quotes = []
+
+    @teams.on_message do |ctx|
+      quotes = ctx.activity.get_quoted_messages
+    end
+
+    post "/api/messages", JSON.generate(quoted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, quotes.length
+    assert_equal "quoted-1", quotes.first.quoted_reply.message_id
+    assert_equal "User Two", quotes.first.quoted_reply.sender_name
   end
 
   def test_default_messaging_endpoint_is_api_messages
@@ -175,6 +193,22 @@ class AppTest < Minitest::Test
     assert_equal "Reply card", @api.sent.first[1]["attachments"].first["content"]["body"].first["text"]
   end
 
+  def test_quote_sends_reply_to_specific_message_id
+    @teams.on_message do |ctx|
+      ctx.quote "quoted-activity-1", "quoted reply"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "quoted-activity-1", @api.sent.first[1]["replyToId"]
+    assert_equal %(<quoted messageId="quoted-activity-1"/> quoted reply), @api.sent.first[1]["text"]
+    assert_equal(
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "quoted-activity-1" } }],
+      @api.sent.first[1]["entities"]
+    )
+  end
+
   def test_post_accepts_hash_activity_escape_hatch
     @teams.on_message do |ctx|
       ctx.post({ "type" => "message", "text" => "**hello**", "textFormat" => "markdown" })
@@ -185,6 +219,33 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal "**hello**", @api.sent.first[1]["text"]
     assert_equal "markdown", @api.sent.first[1]["textFormat"]
+  end
+
+  def test_suggested_action_submit_handler
+    values = []
+
+    @teams.on_suggested_action_submit do |ctx|
+      values << ctx.activity.value.to_h
+      ctx.post "submitted: #{ctx.activity.value.to_h.fetch("choice")}"
+    end
+
+    post "/api/messages", JSON.generate(suggested_action_submit_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [{ "choice" => "approve" }], values
+    assert_equal "submitted: approve", @api.sent.first[1]["text"]
+  end
+
+  def test_suggested_action_submit_generic_route_alias
+    events = []
+
+    @teams.on("invoke") { |_ctx, nxt| events << "invoke"; nxt.call }
+    @teams.on("suggested-action.submit") { |_ctx| events << "suggested-action.submit" }
+
+    post "/api/messages", JSON.generate(suggested_action_submit_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["invoke", "suggested-action.submit"], events
   end
 
   def test_proactive_reply_sets_reply_to_id
@@ -307,6 +368,8 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
+    assert_equal 2, @api.sent.size
+
     final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
@@ -320,5 +383,74 @@ class AppTest < Minitest::Test
       },
       final["entities"].find { |entity| entity["type"] == "https://schema.org/Message" }
     )
+  end
+
+  def test_stream_final_attachment_without_text_omits_text
+    @teams.on_message do |ctx|
+      ctx.stream.emit(
+        Teams::Api::MessageActivity.new.add_card(
+          "type" => "AdaptiveCard",
+          "version" => "1.6",
+          "body" => [
+            { "type" => "TextBlock", "text" => "Card only" }
+          ]
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.sent.size
+
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    refute final.key?("text")
+    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
+    assert_equal "final", final.dig("channelData", "streamType")
+  end
+
+  def test_stream_clear_text_discards_accumulated_text_before_card_final
+    @teams.on_message do |ctx|
+      ctx.stream.emit "discard this"
+      ctx.stream.clear_text
+      ctx.stream.emit(
+        Teams::Api::MessageActivity.new.add_card(
+          "type" => "AdaptiveCard",
+          "version" => "1.6",
+          "body" => [
+            { "type" => "TextBlock", "text" => "Card only" }
+          ]
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 2, @api.sent.size
+
+    final = @api.sent.last[1]
+
+    assert_equal "message", final["type"]
+    refute final.key?("text")
+    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
+    assert_equal "final", final.dig("channelData", "streamType")
+  end
+
+  def test_stream_clear_text_allows_later_text
+    @teams.on_message do |ctx|
+      ctx.stream.emit "discard this"
+      ctx.stream.clear_text
+      ctx.stream.emit "keep this"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "discard this", @api.sent[0][1]["text"]
+    assert_equal "keep this", @api.sent[1][1]["text"]
+    assert_equal "keep this", @api.sent[2][1]["text"]
   end
 end

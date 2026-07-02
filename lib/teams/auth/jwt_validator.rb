@@ -7,13 +7,15 @@ require "openssl"
 module Teams
   module Auth
     class JwtValidator
-      def initialize(client_id:, cloud: PUBLIC_CLOUD, http: nil)
+      def initialize(client_id:, tenant_id: nil, cloud: PUBLIC_CLOUD, http: nil)
         @client_id = client_id
+        @tenant_id = tenant_id
         @cloud = cloud
         @http = http || Common::HttpClient.new
+        @jwks = {}
       end
 
-      def validate!(authorization_header)
+      def validate!(authorization_header, service_url: nil)
         raise AuthenticationError, "Authorization header is required" if authorization_header.to_s.empty?
 
         scheme, token = authorization_header.split(" ", 2)
@@ -21,6 +23,7 @@ module Teams
 
         header, payload, signing_input, signature = decode(token)
         validate_claims!(payload)
+        validate_service_url!(payload, service_url) if service_url
         verify_signature!(header, signing_input, signature)
         payload
       end
@@ -43,14 +46,26 @@ module Teams
         now = Time.now.to_i
         raise AuthenticationError, "JWT expired" if payload["exp"] && now >= payload["exp"].to_i
         raise AuthenticationError, "JWT not active yet" if payload["nbf"] && now < payload["nbf"].to_i
-        raise AuthenticationError, "JWT issuer is invalid" unless payload["iss"] == @cloud.token_issuer
+        raise AuthenticationError, "JWT issuer is invalid" unless valid_issuer?(payload["iss"])
         raise AuthenticationError, "JWT audience is invalid" unless Array(payload["aud"]).include?(@client_id)
+      end
+
+      def validate_service_url!(payload, expected_service_url)
+        token_service_url = payload["serviceurl"]
+        raise AuthenticationError, "Token missing serviceurl claim" if token_service_url.to_s.empty?
+
+        normalized_token_url = normalize_url(token_service_url)
+        normalized_expected_url = normalize_url(expected_service_url)
+
+        return if normalized_token_url == normalized_expected_url
+
+        raise AuthenticationError, "Service URL mismatch. Token: #{normalized_token_url}, Expected: #{normalized_expected_url}"
       end
 
       def verify_signature!(header, signing_input, signature)
         raise AuthenticationError, "only RS256 JWTs are supported" unless header["alg"] == "RS256"
 
-        key = jwks.fetch("keys").find { |candidate| candidate["kid"] == header["kid"] }
+        key = jwks_for_issuer(signing_input).fetch("keys").find { |candidate| candidate["kid"] == header["kid"] }
         raise AuthenticationError, "JWT signing key was not found" unless key
 
         public_key = rsa_public_key(key)
@@ -59,11 +74,48 @@ module Teams
         end
       end
 
-      def jwks
-        @jwks ||= begin
+      def jwks_for_issuer(signing_input)
+        _header_segment, payload_segment = signing_input.split(".", 2)
+        payload = JSON.parse(Base64.urlsafe_decode64(pad(payload_segment)))
+        uri = jwks_uri_for_issuer(payload["iss"])
+
+        @jwks[uri] ||= @http.get(uri)
+      rescue JSON::ParserError, ArgumentError
+        raise AuthenticationError, "JWT is malformed"
+      end
+
+      def jwks_uri_for_issuer(issuer)
+        return bot_framework_jwks_uri if issuer == @cloud.token_issuer
+        return entra_jwks_uri if @tenant_id && tenant_issuer?(issuer)
+
+        bot_framework_jwks_uri
+      end
+
+      def bot_framework_jwks_uri
+        @bot_framework_jwks_uri ||= begin
           metadata = @http.get(@cloud.open_id_metadata_url)
-          @http.get(metadata.fetch("jwks_uri"))
+          metadata.fetch("jwks_uri")
         end
+      end
+
+      def entra_jwks_uri
+        "#{@cloud.login_endpoint}/#{@tenant_id}/discovery/v2.0/keys"
+      end
+
+      def valid_issuer?(issuer)
+        return true if issuer == @cloud.token_issuer
+        return false unless @tenant_id
+
+        tenant_issuer?(issuer)
+      end
+
+      def tenant_issuer?(issuer)
+        issuer == "#{@cloud.login_endpoint}/#{@tenant_id}/v2.0" ||
+          issuer == "https://sts.windows.net/#{@tenant_id}/"
+      end
+
+      def normalize_url(value)
+        value.to_s.sub(%r{/+\z}, "").downcase
       end
 
       def rsa_public_key(jwk)

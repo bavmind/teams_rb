@@ -38,6 +38,21 @@ end
 run teams.to_rack
 ```
 
+Suggested action submit invokes use the SDK route name and expose the submitted payload through `ctx.activity.value`:
+
+```ruby
+teams.on_suggested_action_submit do |ctx|
+  ctx.post "submitted: #{ctx.activity.value.to_h.inspect}"
+end
+```
+
+Reactions use the API client shape from the Microsoft SDKs:
+
+```ruby
+teams.api.reactions.add(conversation_id, activity_id, "like")
+teams.api.reactions.delete(conversation_id, activity_id, "like")
+```
+
 More Rack examples live in `examples/`.
 
 The Teams messaging endpoint defaults to `/api/messages`, matching the TypeScript and Python SDK defaults. If your app needs another path, configure it on the app and register the same full URL with Teams:
@@ -47,7 +62,7 @@ teams = Teams::App.new(messaging_endpoint: "/bot/incoming")
 run teams.to_rack
 ```
 
-Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams quote block, matching the Microsoft SDK behavior.
+Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams `quotedReply` entity and quote placeholder, matching the Microsoft SDK behavior.
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
 
@@ -67,12 +82,25 @@ ctx.activity.raw["serviceUrl"]
 ctx.activity.raw.dig("from", "aadObjectId")
 ```
 
+Quoted replies use the same SDK concepts as TypeScript, Python, and .NET:
+
+```ruby
+ctx.reply "auto-quotes the inbound activity"
+ctx.quote "message-id", "quotes a specific activity"
+
+message = Teams::Api::MessageActivity.new
+  .add_quote("message-id", "builder response")
+
+quotes = ctx.activity.get_quoted_messages
+```
+
 For formatted text, use a message activity with `text_format`:
 
 ```ruby
 ctx.post Teams::Api::MessageActivity.new("plain text", text_format: "plain")
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
+ctx.post Teams::Api::MessageActivity.new("extended markdown", text_format: "extendedmarkdown")
 ```
 
 For streamed responses, use `ctx.stream`:
@@ -94,6 +122,38 @@ teams.on_message do |ctx|
   ctx.stream.emit("! I'm a friendly AI bot. ")
   ctx.stream.emit(Teams::Api::MessageActivity.new.add_ai_generated)
 end
+```
+
+For citations, include the matching inline position marker in the text and add the citation to the message activity:
+
+```ruby
+message = Teams::Api::MessageActivity.new("The policy allows this [1].")
+  .add_ai_generated
+  .add_citation(
+    1,
+    Teams::Api::CitationAppearance.new(
+      name: "Policy Guide",
+      abstract: "Relevant policy excerpt",
+      url: "https://example.com/policy",
+      icon: "PDF"
+    )
+  )
+
+ctx.post message
+```
+
+Citation `name` and `abstract` are required. Teams expects `name` to be at most 80 characters and `abstract` to be at most 160 characters. Keywords are documented as limited to 3 items, each at most 28 characters.
+
+To show Teams' built-in feedback controls on a message:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Was this helpful?").add_feedback
+```
+
+For a custom feedback dialog flow, use `custom`:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Was this helpful?").add_feedback("custom")
 ```
 
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
