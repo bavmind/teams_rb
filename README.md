@@ -124,6 +124,24 @@ teams.on_message do |ctx|
 end
 ```
 
+For citations, include the matching inline position marker in the text and add the citation to the message activity:
+
+```ruby
+message = Teams::Api::MessageActivity.new("The policy allows this [1].")
+  .add_ai_generated
+  .add_citation(
+    1,
+    Teams::Api::CitationAppearance.new(
+      name: "Policy Guide",
+      abstract: "Relevant policy excerpt",
+      url: "https://example.com/policy",
+      icon: "PDF"
+    )
+  )
+
+ctx.post message
+```
+
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
 
 ```ruby

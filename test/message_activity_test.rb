@@ -56,6 +56,101 @@ class MessageActivityTest < Minitest::Test
     assert_equal ["AIGeneratedContent"], activity.to_h["entities"].first["additionalType"]
   end
 
+  def test_add_citation_adds_root_level_message_entity
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(
+        1,
+        Teams::Api::CitationAppearance.new(
+          name: "Source A",
+          abstract: "Source excerpt",
+          url: "https://example.com/source-a",
+          text: "{\"type\":\"AdaptiveCard\"}",
+          icon: "PDF",
+          keywords: ["policy"]
+        )
+      )
+
+    assert_equal(
+      [
+        {
+          "type" => "https://schema.org/Message",
+          "@type" => "Message",
+          "@context" => "https://schema.org",
+          "citation" => [
+            {
+              "@type" => "Claim",
+              "position" => 1,
+              "appearance" => {
+                "@type" => "DigitalDocument",
+                "name" => "Source A",
+                "abstract" => "Source excerpt",
+                "text" => "{\"type\":\"AdaptiveCard\"}",
+                "url" => "https://example.com/source-a",
+                "encodingFormat" => "application/vnd.microsoft.card.adaptive",
+                "image" => { "@type" => "ImageObject", "name" => "PDF" },
+                "keywords" => ["policy"]
+              }
+            }
+          ]
+        }
+      ],
+      activity.to_h["entities"]
+    )
+  end
+
+  def test_add_citation_accepts_hash_appearance
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(1, { name: "Source A", abstract: "Source excerpt" })
+
+    appearance = activity.to_h["entities"].first["citation"].first["appearance"]
+
+    assert_equal "Source A", appearance["name"]
+    assert_equal "Source excerpt", appearance["abstract"]
+    refute appearance.key?("encodingFormat")
+  end
+
+  def test_add_citation_accepts_string_key_hash_appearance
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(1, { "name" => "Source A", "abstract" => "Source excerpt" })
+
+    appearance = activity.to_h["entities"].first["citation"].first["appearance"]
+
+    assert_equal "Source A", appearance["name"]
+    assert_equal "Source excerpt", appearance["abstract"]
+  end
+
+  def test_add_citation_omits_encoding_format_for_empty_text
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(1, { name: "Source A", abstract: "Source excerpt", text: "" })
+
+    appearance = activity.to_h["entities"].first["citation"].first["appearance"]
+
+    assert_equal "", appearance["text"]
+    refute appearance.key?("encodingFormat")
+  end
+
+  def test_add_citation_accumulates_on_single_message_entity
+    activity = Teams::Api::MessageActivity.new("Answer [1] [2]")
+      .add_citation(1, { name: "Source A", abstract: "First" })
+      .add_citation(2, { name: "Source B", abstract: "Second" })
+
+    entities = activity.to_h["entities"]
+
+    assert_equal 1, entities.length
+    assert_equal [1, 2], entities.first["citation"].map { |citation| citation["position"] }
+  end
+
+  def test_add_citation_preserves_ai_generated_label
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_ai_generated
+      .add_citation(1, { name: "Source A", abstract: "Source excerpt" })
+
+    entity = activity.to_h["entities"].first
+
+    assert_equal ["AIGeneratedContent"], entity["additionalType"]
+    assert_equal 1, entity["citation"].length
+  end
+
   def test_add_quote_adds_entity_and_placeholder
     activity = Teams::Api::MessageActivity.new.add_quote("msg-1")
 

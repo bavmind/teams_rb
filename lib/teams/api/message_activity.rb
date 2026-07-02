@@ -62,6 +62,17 @@ module Teams
         self
       end
 
+      def add_citation(position, appearance)
+        entity = ensure_single_root_level_message_entity
+        entity["citation"] ||= []
+        entity["citation"] << {
+          "@type" => "Claim",
+          "position" => position,
+          "appearance" => citation_appearance(appearance).to_h
+        }
+        self
+      end
+
       def to_h
         body = { "type" => "message" }
         body["text"] = text if text
@@ -90,6 +101,10 @@ module Teams
         }
         @entities << entity
         entity
+      end
+
+      def citation_appearance(appearance)
+        appearance.is_a?(CitationAppearance) ? appearance : CitationAppearance.new(appearance || {})
       end
 
       def entity_type(entity)
