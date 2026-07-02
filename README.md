@@ -62,7 +62,7 @@ teams = Teams::App.new(messaging_endpoint: "/bot/incoming")
 run teams.to_rack
 ```
 
-Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams quote block, matching the Microsoft SDK behavior.
+Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams `quotedReply` entity and quote placeholder, matching the Microsoft SDK behavior.
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
 
@@ -80,6 +80,18 @@ Raw payload access stays unchanged through `raw` / `to_h`:
 ```ruby
 ctx.activity.raw["serviceUrl"]
 ctx.activity.raw.dig("from", "aadObjectId")
+```
+
+Quoted replies use the same SDK concepts as TypeScript, Python, and .NET:
+
+```ruby
+ctx.reply "auto-quotes the inbound activity"
+ctx.quote "message-id", "quotes a specific activity"
+
+message = Teams::Api::MessageActivity.new
+  .add_quote("message-id", "builder response")
+
+quotes = ctx.activity.get_quoted_messages
 ```
 
 For formatted text, use a message activity with `text_format`:

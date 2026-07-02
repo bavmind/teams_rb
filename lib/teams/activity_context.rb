@@ -40,7 +40,13 @@ module Teams
     end
 
     def reply(activity_or_text)
-      app.reply_to_activity(conversation_reference, activity.id, reply_activity(activity_or_text))
+      return post(activity_or_text) unless activity.id
+
+      quote(activity.id, activity_or_text)
+    end
+
+    def quote(message_id, activity_or_text)
+      app.reply_to_activity(conversation_reference, message_id, quoted_activity(message_id, activity_or_text))
     end
 
     def typing
@@ -49,44 +55,24 @@ module Teams
 
     private
 
-    def reply_activity(activity_or_text)
+    def quoted_activity(message_id, activity_or_text)
       outbound = normalize_activity(activity_or_text)
+      return outbound.prepend_quote(message_id) if outbound.is_a?(Api::MessageActivity)
+
       body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
       return body unless body.is_a?(Hash)
 
       body = body.dup
-      body["replyToId"] ||= activity.id
-      if body["type"] == "message" && body["text"]
-        body["text"] = [blockquote, body["text"]].compact.join("\r\n")
-      end
+      prepend_quote_to_hash(body, message_id) if body["type"] == "message"
       body
     end
 
-    def blockquote
-      return unless activity.message?
-
-      preview = activity.text.to_s
-      preview = "#{preview[0, 120]}..." if preview.length > 120
-
-      activity_id = html_escape(activity.id.to_s)
-      from_id = html_escape(activity.from.id.to_s)
-      from_name = html_escape(activity.from.name.to_s)
-      preview = html_escape(preview)
-
-      <<~HTML.strip
-        <blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="#{activity_id}">
-        <strong itemprop="mri" itemid="#{from_id}">#{from_name}</strong><span itemprop="time" itemid="#{activity_id}"></span>
-        <p itemprop="preview">#{preview}</p>
-        </blockquote>
-      HTML
-    end
-
-    def html_escape(value)
-      value.gsub("&", "&amp;")
-        .gsub("<", "&lt;")
-        .gsub(">", "&gt;")
-        .gsub('"', "&quot;")
-        .gsub("'", "&#39;")
+    def prepend_quote_to_hash(body, message_id)
+      body["entities"] = Array(body["entities"]) + [
+        Api::QuotedReplyEntity.new("quotedReply" => { "messageId" => message_id }).to_h
+      ]
+      placeholder = %(<quoted messageId="#{message_id}"/>)
+      body["text"] = body["text"].to_s.strip.empty? ? placeholder : "#{placeholder} #{body["text"]}"
     end
 
     def normalize_activity(activity_or_text)

@@ -30,8 +30,11 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
     assert_equal "activity-1", @api.sent.first[1]["replyToId"]
-    assert_includes @api.sent.first[1]["text"], "echo: hello"
-    assert_includes @api.sent.first[1]["text"], "<blockquote"
+    assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
+    assert_equal(
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
+      @api.sent.first[1]["entities"]
+    )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
     assert_equal({ "id" => "user-1", "name" => "User One", "aadObjectId" => "aad-1" }, @api.sent.first[1]["recipient"])
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
@@ -48,6 +51,21 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal 1, @api.sent.size
     assert_equal "matched", @api.sent.first[1]["text"]
+  end
+
+  def test_activity_get_quoted_messages
+    quotes = []
+
+    @teams.on_message do |ctx|
+      quotes = ctx.activity.get_quoted_messages
+    end
+
+    post "/api/messages", JSON.generate(quoted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, quotes.length
+    assert_equal "quoted-1", quotes.first.quoted_reply.message_id
+    assert_equal "User Two", quotes.first.quoted_reply.sender_name
   end
 
   def test_default_messaging_endpoint_is_api_messages
@@ -173,6 +191,22 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal "activity-1", @api.sent.first[1]["replyToId"]
     assert_equal "Reply card", @api.sent.first[1]["attachments"].first["content"]["body"].first["text"]
+  end
+
+  def test_quote_sends_reply_to_specific_message_id
+    @teams.on_message do |ctx|
+      ctx.quote "quoted-activity-1", "quoted reply"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "quoted-activity-1", @api.sent.first[1]["replyToId"]
+    assert_equal %(<quoted messageId="quoted-activity-1"/> quoted reply), @api.sent.first[1]["text"]
+    assert_equal(
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "quoted-activity-1" } }],
+      @api.sent.first[1]["entities"]
+    )
   end
 
   def test_post_accepts_hash_activity_escape_hatch
