@@ -142,6 +142,18 @@ message = Teams::Api::MessageActivity.new("The policy allows this [1].")
 ctx.post message
 ```
 
+To show Teams' built-in feedback controls on a message:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Was this helpful?").add_feedback
+```
+
+For a custom feedback dialog flow, use `custom`:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Was this helpful?").add_feedback("custom")
+```
+
 For Adaptive Cards, use `Teams::Cards` objects directly or wrap them in a message activity:
 
 ```ruby

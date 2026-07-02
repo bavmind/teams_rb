@@ -4,9 +4,10 @@ module Teams
   module Api
     class MessageActivity
       TEXT_FORMATS = %w[plain markdown xml extendedmarkdown].freeze
+      FEEDBACK_MODES = %w[default custom].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
-      attr_reader :text, :attachments, :text_format, :summary, :input_hint, :entities
+      attr_reader :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data
 
       def initialize(text = nil, attachments: [], text_format: nil, summary: nil, input_hint: nil)
         @text = text
@@ -15,6 +16,7 @@ module Teams
         @summary = summary
         @input_hint = input_hint
         @entities = []
+        @channel_data = {}
       end
 
       def add_text(value)
@@ -73,6 +75,12 @@ module Teams
         self
       end
 
+      def add_feedback(mode = "default")
+        @channel_data["feedbackLoop"] = { "type" => normalize_feedback_mode(mode) }
+        @channel_data.delete("feedbackLoopEnabled")
+        self
+      end
+
       def to_h
         body = { "type" => "message" }
         body["text"] = text if text
@@ -81,6 +89,7 @@ module Teams
         body["inputHint"] = input_hint if input_hint
         body["attachments"] = attachments unless attachments.empty?
         body["entities"] = @entities.map { |entity| entity.respond_to?(:to_h) ? entity.to_h : entity } unless @entities.empty?
+        body["channelData"] = channel_data unless channel_data.empty?
         body
       end
 
@@ -118,6 +127,13 @@ module Teams
         return normalized if TEXT_FORMATS.include?(normalized)
 
         raise ArgumentError, "text_format must be one of: #{TEXT_FORMATS.join(", ")}"
+      end
+
+      def normalize_feedback_mode(value)
+        normalized = value.to_s
+        return normalized if FEEDBACK_MODES.include?(normalized)
+
+        raise ArgumentError, "feedback mode must be one of: #{FEEDBACK_MODES.join(", ")}"
       end
     end
   end

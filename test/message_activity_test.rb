@@ -151,6 +151,39 @@ class MessageActivityTest < Minitest::Test
     assert_equal 1, entity["citation"].length
   end
 
+  def test_add_feedback_enables_default_feedback_loop
+    activity = Teams::Api::MessageActivity.new("Answer").add_feedback
+
+    assert_equal(
+      { "feedbackLoop" => { "type" => "default" } },
+      activity.to_h["channelData"]
+    )
+  end
+
+  def test_add_feedback_supports_custom_feedback_loop
+    activity = Teams::Api::MessageActivity.new("Answer").add_feedback("custom")
+
+    assert_equal(
+      { "feedbackLoop" => { "type" => "custom" } },
+      activity.to_h["channelData"]
+    )
+  end
+
+  def test_add_feedback_rejects_unknown_mode
+    assert_raises(ArgumentError) do
+      Teams::Api::MessageActivity.new("Answer").add_feedback("sideways")
+    end
+  end
+
+  def test_add_feedback_is_chainable
+    activity = Teams::Api::MessageActivity.new("Answer")
+      .add_ai_generated
+      .add_feedback
+
+    assert_equal ["AIGeneratedContent"], activity.to_h["entities"].first["additionalType"]
+    assert_equal "default", activity.to_h.dig("channelData", "feedbackLoop", "type")
+  end
+
   def test_add_quote_adds_entity_and_placeholder
     activity = Teams::Api::MessageActivity.new.add_quote("msg-1")
 
