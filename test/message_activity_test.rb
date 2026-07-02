@@ -129,6 +129,48 @@ class MessageActivityTest < Minitest::Test
     refute appearance.key?("encodingFormat")
   end
 
+  def test_add_citation_requires_name
+    error = assert_raises(ArgumentError) do
+      Teams::Api::MessageActivity.new("Answer [1]")
+        .add_citation(1, { abstract: "Source excerpt" })
+        .to_h
+    end
+
+    assert_equal "citation name is required", error.message
+  end
+
+  def test_add_citation_requires_abstract
+    error = assert_raises(ArgumentError) do
+      Teams::Api::MessageActivity.new("Answer [1]")
+        .add_citation(1, { name: "Source A" })
+        .to_h
+    end
+
+    assert_equal "citation abstract is required", error.message
+  end
+
+  def test_add_citation_allows_empty_required_strings
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(1, { name: "", abstract: "" })
+
+    appearance = activity.to_h["entities"].first["citation"].first["appearance"]
+
+    assert_equal "", appearance["name"]
+    assert_equal "", appearance["abstract"]
+  end
+
+  def test_add_citation_does_not_enforce_documented_length_limits
+    long_abstract = "a" * 161
+
+    activity = Teams::Api::MessageActivity.new("Answer [1]")
+      .add_citation(1, { name: "a" * 81, abstract: long_abstract, keywords: %w[one two three four] })
+
+    appearance = activity.to_h["entities"].first["citation"].first["appearance"]
+
+    assert_equal long_abstract, appearance["abstract"]
+    assert_equal %w[one two three four], appearance["keywords"]
+  end
+
   def test_add_citation_accumulates_on_single_message_entity
     activity = Teams::Api::MessageActivity.new("Answer [1] [2]")
       .add_citation(1, { name: "Source A", abstract: "First" })

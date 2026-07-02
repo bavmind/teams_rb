@@ -49,6 +49,8 @@ module Teams
       end
 
       def to_h
+        validate!
+
         body = {
           "@type" => "DigitalDocument",
           "name" => name,
@@ -62,6 +64,19 @@ module Teams
         body["usageInfo"] = usage_info.to_h if usage_info && usage_info.respond_to?(:to_h)
         body["usageInfo"] = usage_info if usage_info && !usage_info.respond_to?(:to_h)
         body
+      end
+
+      private
+
+      def validate!
+        validate_required!("name", name)
+        validate_required!("abstract", abstract)
+      end
+
+      def validate_required!(field, value)
+        return unless value.nil?
+
+        raise ArgumentError, "citation #{field} is required"
       end
     end
   end

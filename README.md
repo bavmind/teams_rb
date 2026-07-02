@@ -142,6 +142,8 @@ message = Teams::Api::MessageActivity.new("The policy allows this [1].")
 ctx.post message
 ```
 
+Citation `name` and `abstract` are required. Teams expects `name` to be at most 80 characters and `abstract` to be at most 160 characters. Keywords are documented as limited to 3 items, each at most 28 characters.
+
 To show Teams' built-in feedback controls on a message:
 
 ```ruby
