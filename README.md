@@ -46,6 +46,18 @@ teams.on_suggested_action_submit do |ctx|
 end
 ```
 
+Message update events fire when a user edits or restores a Teams message:
+
+```ruby
+teams.on_edit_message do |ctx|
+  puts "edited text: #{ctx.activity.text}"
+end
+
+teams.on_undelete_message do |ctx|
+  puts "restored text: #{ctx.activity.text}"
+end
+```
+
 Reactions use the API client shape from the Microsoft SDKs:
 
 ```ruby

@@ -74,6 +74,21 @@ module Teams
       self
     end
 
+    def on_message_update(&block)
+      @router.on_message_update(&block)
+      self
+    end
+
+    def on_edit_message(&block)
+      @router.on_edit_message(&block)
+      self
+    end
+
+    def on_undelete_message(&block)
+      @router.on_undelete_message(&block)
+      self
+    end
+
     def process_inbound(payload, env: {})
       activity = Activity.new(payload)
       validate_inbound!(env, activity)

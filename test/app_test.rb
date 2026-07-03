@@ -248,6 +248,55 @@ class AppTest < Minitest::Test
     assert_equal ["invoke", "suggested-action.submit"], events
   end
 
+  def test_message_update_handler
+    updates = []
+
+    @teams.on_message_update do |ctx|
+      updates << [ctx.activity.text, ctx.activity.channel_data.event_type]
+    end
+
+    post "/api/messages", JSON.generate(message_update_payload(text: "edited")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [["edited", "editMessage"]], updates
+  end
+
+  def test_edit_message_handler
+    events = []
+
+    @teams.on_message_update { |_ctx, nxt| events << "messageUpdate"; nxt.call }
+    @teams.on_edit_message { |ctx| events << "edit:#{ctx.activity.text}" }
+
+    post "/api/messages", JSON.generate(message_update_payload(text: "edited")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["messageUpdate", "edit:edited"], events
+  end
+
+  def test_undelete_message_handler
+    events = []
+
+    @teams.on_undelete_message { |ctx| events << "undelete:#{ctx.activity.text}" }
+
+    post "/api/messages", JSON.generate(message_update_payload(text: "restored", event_type: "undeleteMessage")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["undelete:restored"], events
+  end
+
+  def test_message_update_generic_route_aliases
+    events = []
+
+    @teams.on("messageUpdate") { |_ctx, nxt| events << "messageUpdate"; nxt.call }
+    @teams.on("editMessage") { |ctx| events << "edit:#{ctx.activity.text}" }
+    @teams.on("undeleteMessage") { |_ctx| events << "undelete" }
+
+    post "/api/messages", JSON.generate(message_update_payload(text: "edited")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["messageUpdate", "edit:edited"], events
+  end
+
   def test_proactive_reply_sets_reply_to_id
     @teams.reply("conversation-2", "activity-2", "thread reply")
 

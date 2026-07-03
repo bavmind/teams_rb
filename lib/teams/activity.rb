@@ -83,6 +83,10 @@ module Teams
       type == "message"
     end
 
+    def message_update?
+      type == "messageUpdate"
+    end
+
     def typing?
       type == "typing"
     end

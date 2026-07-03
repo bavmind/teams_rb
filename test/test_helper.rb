@@ -106,6 +106,13 @@ def teams_payload(text: "hello", service_url: "https://smba.trafficmanager.net/t
   }
 end
 
+def message_update_payload(text: "edited", event_type: "editMessage")
+  teams_payload(text:).merge(
+    "type" => "messageUpdate",
+    "channelData" => { "eventType" => event_type }
+  )
+end
+
 def quoted_teams_payload
   teams_payload.merge(
     "entities" => [
