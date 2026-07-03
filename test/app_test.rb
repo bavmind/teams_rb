@@ -256,6 +256,58 @@ class AppTest < Minitest::Test
     assert_equal "thread reply", @api.sent.first[1]["text"]
   end
 
+  def test_proactive_update_replaces_existing_activity
+    @teams.update("conversation-2", "activity-2", "Free phones gone now.")
+
+    assert_equal "conversation-2", @api.updates.first[0]
+    assert_equal "activity-2", @api.updates.first[1]
+    assert_equal "Free phones gone now.", @api.updates.first[2]["text"]
+    assert_equal({ "id" => "conversation-2" }, @api.updates.first[2]["conversation"])
+    assert_equal "msteams", @api.updates.first[2]["channelId"]
+    assert_equal "https://smba.trafficmanager.net/teams", @api.updates.first[3]
+  end
+
+  def test_post_updates_existing_activity_when_activity_has_id
+    @teams.post("conversation-2", { "type" => "message", "id" => "activity-2", "text" => "updated" })
+
+    assert_empty @api.sent
+    assert_equal "conversation-2", @api.updates.first[0]
+    assert_equal "activity-2", @api.updates.first[1]
+    assert_equal "updated", @api.updates.first[2]["text"]
+  end
+
+  def test_post_updates_existing_message_activity_with_id
+    activity = Teams::Api::MessageActivity.new("updated").with_id("activity-2")
+
+    @teams.post("conversation-2", activity)
+
+    assert_empty @api.sent
+    assert_equal "activity-2", @api.updates.first[1]
+    assert_equal "updated", @api.updates.first[2]["text"]
+  end
+
+  def test_context_update_replaces_existing_activity_in_current_conversation
+    @teams.on_message do |ctx|
+      ctx.update "assistant-activity-1", "Thanks for your feedback."
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "conversation-1", @api.updates.first[0]
+    assert_equal "assistant-activity-1", @api.updates.first[1]
+    assert_equal "Thanks for your feedback.", @api.updates.first[2]["text"]
+    assert_equal "https://smba.trafficmanager.net/teams", @api.updates.first[3]
+  end
+
+  def test_proactive_update_requires_activity_id
+    error = assert_raises(ArgumentError) do
+      @teams.update("conversation-2", Teams::Api::MessageActivity.new("not an id"), "update")
+    end
+
+    assert_equal "activity_id must be a String", error.message
+  end
+
   def test_typing_sends_without_reply_to_id
     @teams.on_message { |ctx| ctx.typing }
 
@@ -292,11 +344,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 3, @api.sent.size
+    assert_equal 1, @api.sent.size
+    assert_equal 2, @api.updates.size
 
     first = @api.sent[0][1]
-    second = @api.sent[1][1]
-    final = @api.sent[2][1]
+    second = @api.updates[0][2]
+    final = @api.updates[1][2]
 
     assert_equal "typing", first["type"]
     assert_equal "Hello", first["text"]
@@ -327,11 +380,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 3, @api.sent.size
+    assert_equal 1, @api.sent.size
+    assert_equal 2, @api.updates.size
 
     informative = @api.sent[0][1]
-    chunk = @api.sent[1][1]
-    final = @api.sent[2][1]
+    chunk = @api.updates[0][2]
+    final = @api.updates[1][2]
 
     assert_equal "typing", informative["type"]
     assert_equal "Thinking...", informative["text"]
@@ -368,9 +422,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 2, @api.sent.size
+    assert_equal 1, @api.sent.size
+    assert_equal 1, @api.updates.size
 
-    final = @api.sent.last[1]
+    final = @api.updates.last[2]
 
     assert_equal "message", final["type"]
     assert_equal "Hello", final["text"]
@@ -429,9 +484,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 2, @api.sent.size
+    assert_equal 1, @api.sent.size
+    assert_equal 1, @api.updates.size
 
-    final = @api.sent.last[1]
+    final = @api.updates.last[2]
 
     assert_equal "message", final["type"]
     refute final.key?("text")
@@ -450,7 +506,7 @@ class AppTest < Minitest::Test
 
     assert last_response.ok?
     assert_equal "discard this", @api.sent[0][1]["text"]
-    assert_equal "keep this", @api.sent[1][1]["text"]
-    assert_equal "keep this", @api.sent[2][1]["text"]
+    assert_equal "keep this", @api.updates[0][2]["text"]
+    assert_equal "keep this", @api.updates[1][2]["text"]
   end
 end

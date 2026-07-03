@@ -26,6 +26,12 @@ class MessageActivityTest < Minitest::Test
     assert_equal "markdown", activity.to_h["textFormat"]
   end
 
+  def test_supports_builder_style_id
+    activity = Teams::Api::MessageActivity.new("updated").with_id("activity-1")
+
+    assert_equal "activity-1", activity.to_h["id"]
+  end
+
   def test_rejects_unknown_text_format
     assert_raises(ArgumentError) do
       Teams::Api::MessageActivity.new("hello", text_format: "html")

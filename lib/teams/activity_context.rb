@@ -49,6 +49,10 @@ module Teams
       app.reply_to_activity(conversation_reference, message_id, quoted_activity(message_id, activity_or_text))
     end
 
+    def update(activity_id, activity_or_text)
+      app.update_activity(conversation_reference, activity_id, activity_or_text)
+    end
+
     def typing
       post(Api::TypingActivity.new)
     end

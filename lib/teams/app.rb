@@ -122,10 +122,31 @@ module Teams
       end
     end
 
+    def update(conversation_id, activity_id, activity_or_text, service_url: nil)
+      assert_string!(conversation_id, "conversation_id")
+      assert_string!(activity_id, "activity_id")
+
+      update_activity(
+        proactive_reference(conversation_id, service_url:),
+        activity_id,
+        activity_or_text
+      )
+    end
+
     def send_activity(conversation_reference, activity_or_text)
+      activity = activity_for_reference(conversation_reference, activity_or_text)
+      id = activity_id(activity)
+
+      return api.update_activity(
+        conversation_reference.conversation_id,
+        id,
+        activity,
+        service_url: conversation_reference.service_url
+      ) if id
+
       api.send_to_conversation(
         conversation_reference.conversation_id,
-        activity_for_reference(conversation_reference, activity_or_text),
+        activity,
         service_url: conversation_reference.service_url
       )
     end
@@ -137,6 +158,15 @@ module Teams
       api.send_to_conversation(
         conversation_reference.conversation_id,
         activity,
+        service_url: conversation_reference.service_url
+      )
+    end
+
+    def update_activity(conversation_reference, activity_id, activity_or_text)
+      api.update_activity(
+        conversation_reference.conversation_id,
+        activity_id,
+        activity_for_reference(conversation_reference, activity_or_text),
         service_url: conversation_reference.service_url
       )
     end
@@ -196,6 +226,12 @@ module Teams
       body["channelId"] ||= conversation_reference.channel_id if conversation_reference.channel_id
       body["locale"] ||= conversation_reference.locale if conversation_reference.locale
       body
+    end
+
+    def activity_id(activity)
+      return unless activity.is_a?(Hash)
+
+      activity["id"] || activity[:id]
     end
 
     def assert_string!(value, name)

@@ -27,6 +27,13 @@ module Teams
         http.post(url, json: activity_to_h(activity))
       end
 
+      def update_activity(conversation_id, activity_id, activity, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API PUT #{url}")
+        http.put(url, json: activity_to_h(activity))
+      end
+
       def reactions
         @reactions ||= ReactionClient.new(service_url:, http:)
       end

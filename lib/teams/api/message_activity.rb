@@ -7,9 +7,10 @@ module Teams
       FEEDBACK_MODES = %w[default custom].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
-      attr_reader :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data
+      attr_reader :id, :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data
 
-      def initialize(text = nil, attachments: [], text_format: nil, summary: nil, input_hint: nil)
+      def initialize(text = nil, id: nil, attachments: [], text_format: nil, summary: nil, input_hint: nil)
+        @id = id
         @text = text
         @attachments = attachments
         @text_format = normalize_text_format(text_format)
@@ -55,6 +56,11 @@ module Teams
         self
       end
 
+      def with_id(id)
+        @id = id
+        self
+      end
+
       def add_ai_generated
         entity = ensure_single_root_level_message_entity
         additional_types = Array(entity["additionalType"])
@@ -83,6 +89,7 @@ module Teams
 
       def to_h
         body = { "type" => "message" }
+        body["id"] = id if id
         body["text"] = text if text
         body["textFormat"] = text_format if text_format
         body["summary"] = summary if summary
