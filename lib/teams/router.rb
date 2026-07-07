@@ -37,11 +37,11 @@ module Teams
     end
 
     def on_edit_message(&block)
-      register("editMessage", route_selector("editMessage"), &block)
+      register("edit_message", message_update_event_selector("editMessage"), &block)
     end
 
     def on_undelete_message(&block)
-      register("undeleteMessage", route_selector("undeleteMessage"), &block)
+      register("undelete_message", message_update_event_selector("undeleteMessage"), &block)
     end
 
     def matching(activity)
@@ -62,20 +62,21 @@ module Teams
         return true if name == "activity"
         return true if name == activity.type
         return true if name == "message" && activity.message?
-        return true if name == "messageUpdate" && activity.message_update?
         return true if name == "typing" && activity.typing?
         return true if name == "invoke" && activity.invoke?
         return true if name == "suggested-action.submit" && activity.suggested_action_submit?
-
-        if activity.message_update?
-          return true if name == activity.channel_data.event_type
-        end
 
         if activity.install_update?
           return true if name == "install.#{activity.raw["action"]}"
         end
 
         false
+      end
+    end
+
+    def message_update_event_selector(event_type)
+      lambda do |activity|
+        activity.message_update? && activity.channel_data.event_type == event_type
       end
     end
   end

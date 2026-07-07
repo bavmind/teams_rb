@@ -284,17 +284,15 @@ class AppTest < Minitest::Test
     assert_equal ["undelete:restored"], events
   end
 
-  def test_message_update_generic_route_aliases
+  def test_message_update_generic_activity_type_route
     events = []
 
     @teams.on("messageUpdate") { |_ctx, nxt| events << "messageUpdate"; nxt.call }
-    @teams.on("editMessage") { |ctx| events << "edit:#{ctx.activity.text}" }
-    @teams.on("undeleteMessage") { |_ctx| events << "undelete" }
 
     post "/api/messages", JSON.generate(message_update_payload(text: "edited")), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal ["messageUpdate", "edit:edited"], events
+    assert_equal ["messageUpdate"], events
   end
 
   def test_proactive_reply_sets_reply_to_id
