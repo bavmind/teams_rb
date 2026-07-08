@@ -32,6 +32,18 @@ module Teams
       register("message", selector, &block)
     end
 
+    def on_message_update(&block)
+      register("messageUpdate", route_selector("messageUpdate"), &block)
+    end
+
+    def on_edit_message(&block)
+      register("edit_message", message_update_event_selector("editMessage"), &block)
+    end
+
+    def on_undelete_message(&block)
+      register("undelete_message", message_update_event_selector("undeleteMessage"), &block)
+    end
+
     def matching(activity)
       @routes.select { |route| route.selector.call(activity) }
     end
@@ -59,6 +71,12 @@ module Teams
         end
 
         false
+      end
+    end
+
+    def message_update_event_selector(event_type)
+      lambda do |activity|
+        activity.message_update? && activity.channel_data.event_type == event_type
       end
     end
   end

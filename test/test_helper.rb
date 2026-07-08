@@ -11,12 +11,13 @@ require "stringio"
 require "teams"
 
 class FakeApi
-  attr_reader :service_url, :sent, :replies
+  attr_reader :service_url, :sent, :replies, :updates
 
   def initialize(service_url: "https://smba.trafficmanager.net/teams")
     @service_url = service_url
     @sent = []
     @replies = []
+    @updates = []
   end
 
   def send_to_conversation(conversation_id, activity, service_url: nil)
@@ -31,6 +32,13 @@ class FakeApi
     snapshot = Marshal.load(Marshal.dump(payload))
     @replies << [conversation_id, activity_id, snapshot, service_url]
     { "id" => "reply-id" }
+  end
+
+  def update_activity(conversation_id, activity_id, activity, service_url: nil)
+    payload = activity.respond_to?(:to_h) ? activity.to_h : activity
+    snapshot = Marshal.load(Marshal.dump(payload))
+    @updates << [conversation_id, activity_id, snapshot, service_url]
+    { "id" => activity_id }
   end
 
   private
@@ -96,6 +104,13 @@ def teams_payload(text: "hello", service_url: "https://smba.trafficmanager.net/t
     "conversation" => { "id" => "conversation-1" },
     "text" => text
   }
+end
+
+def message_update_payload(text: "edited", event_type: "editMessage")
+  teams_payload(text:).merge(
+    "type" => "messageUpdate",
+    "channelData" => { "eventType" => event_type }
+  )
 end
 
 def quoted_teams_payload

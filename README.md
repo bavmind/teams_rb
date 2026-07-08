@@ -7,7 +7,7 @@ This first MVP targets the production message-bot path:
 - Rack endpoint for Teams messages
 - Inbound Teams request validation enabled by default
 - Message routing with `on_message`
-- Replies and proactive sends through the Teams API
+- Replies, updates, and proactive sends through the Teams API
 - Faraday HTTP client
 - Minitest test suite
 
@@ -46,11 +46,35 @@ teams.on_suggested_action_submit do |ctx|
 end
 ```
 
+Message update events fire when a user edits or restores a Teams message:
+
+```ruby
+teams.on_edit_message do |ctx|
+  puts "edited text: #{ctx.activity.text}"
+end
+
+teams.on_undelete_message do |ctx|
+  puts "restored text: #{ctx.activity.text}"
+end
+```
+
 Reactions use the API client shape from the Microsoft SDKs:
 
 ```ruby
 teams.api.reactions.add(conversation_id, activity_id, "like")
 teams.api.reactions.delete(conversation_id, activity_id, "like")
+```
+
+To update a message later, keep the activity id returned from the original send:
+
+```ruby
+sent = teams.post(conversation_id, "We have 2 Free iPhones, ready to pick up. While supplies last")
+
+teams.update(conversation_id, sent.fetch("id"), "Free phones gone now.")
+# equivalent SDK-send style:
+teams.post(conversation_id, Teams::Api::MessageActivity.new("Free phones gone now.").with_id(sent.fetch("id")))
+# lower-level parity surface:
+teams.api.update_activity(conversation_id, sent.fetch("id"), Teams::Api::MessageActivity.new("Free phones gone now."))
 ```
 
 More Rack examples live in `examples/`.
@@ -62,9 +86,9 @@ teams = Teams::App.new(messaging_endpoint: "/bot/incoming")
 run teams.to_rack
 ```
 
-Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams `quotedReply` entity and quote placeholder, matching the Microsoft SDK behavior.
+Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Treat `post` as Ruby's spelling of SDK `send`: if the activity already has an `id`, it updates that activity instead of creating a new one. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams `quotedReply` entity and quote placeholder, matching the Microsoft SDK behavior. Use `ctx.update(activity_id, activity)` to replace a previous bot message in the current conversation.
 
-`ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post or reply later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply`.
+`ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post, reply, or update later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply` / `teams.update`.
 
 For modeled Ruby object access, use snake_case field names:
 
