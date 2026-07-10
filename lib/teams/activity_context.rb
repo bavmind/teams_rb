@@ -48,8 +48,10 @@ module Teams
       quote(activity.id, activity_or_text)
     end
 
+    # Quoted replies are plain sends carrying the quote placeholder and
+    # entity, matching the TypeScript and Python SDKs; no replyToId is set.
     def quote(message_id, activity_or_text)
-      app.reply_to_activity(conversation_reference, message_id, quoted_activity(message_id, activity_or_text))
+      post(quoted_activity(message_id, activity_or_text))
     end
 
     # Sugar over post: the SDKs update by sending an activity that already

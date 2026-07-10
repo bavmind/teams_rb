@@ -73,11 +73,15 @@ module Teams
       return nil if canceled
       return nil unless final_content?
 
-      response = if @timed_out
+      # Merging the sent activity with the response keeps the id available
+      # even though live Teams answers follow-up stream posts with 202 and an
+      # empty body. @result doubling as the closed flag depends on this.
+      @result = if @timed_out
         send_final
       else
         begin
-          send_activity(final_stream_activity)
+          outbound = final_stream_activity
+          Api::SentActivity.merge(outbound, send_activity(outbound))
         rescue StreamTimedOutError
           # The final streamed send tripped the two-minute limit. Update the
           # original message in place with the buffered content instead of
@@ -85,11 +89,6 @@ module Teams
           send_final
         end
       end
-
-      # Live Teams answers follow-up stream posts with 202 and an empty body,
-      # so the close result is synthesized from the stream id when the final
-      # send returns none. @result doubling as the closed flag depends on it.
-      @result = response.is_a?(Hash) && response["id"] ? response : compact_hash("id" => @id)
     ensure
       reset_state if @result
     end
@@ -219,7 +218,7 @@ module Teams
 
       strip_stream_channel_data(activity, activity["channelData"] || {})
 
-      send_activity(activity)
+      Api::SentActivity.merge(activity, send_activity(activity))
     end
 
     # Removes the stream markers from channel data for the timed-out in-place

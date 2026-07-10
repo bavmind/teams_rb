@@ -29,16 +29,16 @@ class AppTest < Minitest::Test
 
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
-    assert_equal "activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
     assert_equal(
       [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
       @api.sent.first[1]["entities"]
     )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
-    assert_equal({ "id" => "user-1", "name" => "User One", "aadObjectId" => "aad-1" }, @api.sent.first[1]["recipient"])
+    refute @api.sent.first[1].key?("recipient")
+    refute @api.sent.first[1].key?("channelId")
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
-    assert_equal "msteams", @api.sent.first[1]["channelId"]
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
   end
 
@@ -122,13 +122,34 @@ class AppTest < Minitest::Test
     assert_includes last_response.body, "serviceUrl host is not allowed"
   end
 
+  def test_sends_return_sent_activity_with_id
+    proactive = @teams.post("conversation-2", "hello")
+
+    assert_instance_of Teams::Api::SentActivity, proactive
+    assert_equal "sent-1", proactive.id
+    assert_equal "hello", proactive.text
+    assert_equal "conversation-2", proactive.conversation_id
+
+    results = []
+    @teams.on_message do |ctx|
+      results << ctx.post("from handler")
+      results << ctx.reply("reply from handler")
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert(results.all? { |result| result.is_a?(Teams::Api::SentActivity) })
+    assert(results.all?(&:id))
+  end
+
   def test_proactive_send
     @teams.post("conversation-2", "hello proactively")
 
     assert_equal "conversation-2", @api.sent.first[0]
     assert_equal "hello proactively", @api.sent.first[1]["text"]
     assert_equal({ "id" => "conversation-2" }, @api.sent.first[1]["conversation"])
-    assert_equal "msteams", @api.sent.first[1]["channelId"]
+    refute @api.sent.first[1].key?("channelId")
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
   end
 
@@ -189,7 +210,7 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal "activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal "Reply card", @api.sent.first[1]["attachments"].first["content"]["body"].first["text"]
   end
 
@@ -201,7 +222,7 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal "quoted-activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal %(<quoted messageId="quoted-activity-1"/> quoted reply), @api.sent.first[1]["text"]
     assert_equal(
       [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "quoted-activity-1" } }],
@@ -295,12 +316,27 @@ class AppTest < Minitest::Test
     assert_equal ["messageUpdate"], events
   end
 
-  def test_proactive_reply_sets_reply_to_id
-    @teams.reply("conversation-2", "activity-2", "thread reply")
+  def test_proactive_reply_threads_conversation_id
+    @teams.reply("conversation-2", "1728640934763", "thread reply")
 
-    assert_equal "conversation-2", @api.sent.first[0]
-    assert_equal "activity-2", @api.sent.first[1]["replyToId"]
+    assert_equal "conversation-2;messageid=1728640934763", @api.sent.first[0]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal "thread reply", @api.sent.first[1]["text"]
+  end
+
+  def test_proactive_reply_requires_numeric_message_id
+    error = assert_raises(ArgumentError) do
+      @teams.reply("conversation-2", "activity-2", "thread reply")
+    end
+
+    assert_equal %(invalid message_id "activity-2": must be a non-zero numeric value), error.message
+  end
+
+  def test_to_threaded_conversation_id_strips_existing_thread_suffix
+    assert_equal(
+      "19:abc@thread.skype;messageid=456",
+      Teams.to_threaded_conversation_id("19:abc@thread.skype;messageid=123", "456")
+    )
   end
 
   def test_proactive_update_replaces_existing_activity
@@ -310,7 +346,7 @@ class AppTest < Minitest::Test
     assert_equal "activity-2", @api.updates.first[1]
     assert_equal "Free phones gone now.", @api.updates.first[2]["text"]
     assert_equal({ "id" => "conversation-2" }, @api.updates.first[2]["conversation"])
-    assert_equal "msteams", @api.updates.first[2]["channelId"]
+    refute @api.updates.first[2].key?("channelId")
     assert_equal "https://smba.trafficmanager.net/teams", @api.updates.first[3]
   end
 
@@ -623,7 +659,8 @@ class AppTest < Minitest::Test
 
     result = stream.close
 
-    assert_equal({ "id" => "sent-1" }, result)
+    assert_instance_of Teams::Api::SentActivity, result
+    assert_equal "sent-1", result.id
     assert_equal 1, api.sent.size
     assert_equal 1, api.updates.size
 
@@ -647,7 +684,7 @@ class AppTest < Minitest::Test
     result = stream.close
 
     assert stream.timed_out
-    assert_equal({ "id" => "sent-1" }, result)
+    assert_equal "sent-1", result.id
     assert_equal 1, api.updates.size
 
     final = api.updates.last[2]
@@ -673,8 +710,8 @@ class AppTest < Minitest::Test
     refute stream.closed
     second = stream.close
 
-    assert_equal "sent-1", first["id"]
-    assert_equal "sent-3", second["id"]
+    assert_equal "sent-1", first.id
+    assert_equal "sent-3", second.id
     assert_equal 4, api.sent.size
     assert_equal 0, api.updates.size
 

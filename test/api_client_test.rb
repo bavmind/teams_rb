@@ -61,6 +61,22 @@ class ApiClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  def test_reply_to_activity_sets_reply_to_id_in_body
+    stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+      stub.post("/teams/v3/conversations/conversation-1/activities/activity-1") do |env|
+        body = JSON.parse(env.body)
+        assert_equal "activity-1", body["replyToId"]
+        assert_equal "reply text", body["text"]
+
+        [201, { "Content-Type" => "application/json" }, JSON.generate("id" => "reply-1")]
+      end
+    end
+    client = api_client(stubs)
+
+    client.reply_to_activity("conversation-1", "activity-1", "reply text")
+    stubs.verify_stubbed_calls
+  end
+
   def test_sends_targeted_activity_with_query_param
     stubs = Faraday::Adapter::Test::Stubs.new do |stub|
       stub.post("/teams/v3/conversations/conversation-1/activities?isTargetedActivity=true") do |env|

@@ -23,10 +23,12 @@ module Teams
       end
 
       def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)
+        body = activity_to_h(activity)
+        body = body.merge("replyToId" => activity_id) if body.is_a?(Hash)
         path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
         url = absolute(path, service_url:)
         @logger&.debug("Teams API POST #{url}")
-        http.post(url, json: activity_to_h(activity))
+        http.post(url, json: body)
       end
 
       def update_activity(conversation_id, activity_id, activity, service_url: nil)

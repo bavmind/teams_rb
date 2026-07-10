@@ -134,6 +134,15 @@ ctx.typing                        # animated ellipsis
 ctx.stream.update("Thinking...")  # visible status line above the streamed response
 ```
 
+Every send returns a `Teams::Api::SentActivity` carrying the outbound activity merged with the server response, so the sent message id is always available:
+
+```ruby
+sent = ctx.reply("hello")
+sent.id   # server-assigned activity id
+sent.text # "hello"
+sent.to_h # full merged activity hash
+```
+
 When the inbound message is targeted (visible only to the sender), `ctx.post` and `ctx.reply` automatically respond as targeted messages to that sender, matching the other Teams SDKs: the recipient is inferred, a `targetedMessageInfo` entity is attached for prompt preview, and the send routes through the targeted activity endpoints. Pass an explicit recipient to opt out, or send an explicitly targeted message from any handler:
 
 ```ruby

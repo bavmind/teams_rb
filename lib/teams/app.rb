@@ -121,16 +121,18 @@ module Teams
       )
     end
 
+    # Proactive threaded replies use a ";messageid=" conversation ID like the
+    # TypeScript and Python SDKs; the service decides whether threading applies.
     def reply(conversation_id, activity_id_or_activity, activity_or_text = nil, service_url: nil)
       assert_string!(conversation_id, "conversation_id")
 
       if activity_or_text
         assert_string!(activity_id_or_activity, "activity_id")
 
-        reply_to_activity(
-          proactive_reference(conversation_id, service_url:),
-          activity_id_or_activity,
-          activity_or_text
+        post(
+          Teams.to_threaded_conversation_id(conversation_id, activity_id_or_activity),
+          activity_or_text,
+          service_url:
         )
       else
         post(conversation_id, activity_id_or_activity, service_url:)
@@ -158,26 +160,17 @@ module Teams
       conversation_id = conversation_reference.conversation_id
       service_url = conversation_reference.service_url
 
-      if id
-        return api.update_targeted_activity(conversation_id, id, activity, service_url:) if targeted
-
-        return api.update_activity(conversation_id, id, activity, service_url:)
+      response = if id && targeted
+        api.update_targeted_activity(conversation_id, id, activity, service_url:)
+      elsif id
+        api.update_activity(conversation_id, id, activity, service_url:)
+      elsif targeted
+        api.send_targeted_to_conversation(conversation_id, activity, service_url:)
+      else
+        api.send_to_conversation(conversation_id, activity, service_url:)
       end
 
-      return api.send_targeted_to_conversation(conversation_id, activity, service_url:) if targeted
-
-      api.send_to_conversation(conversation_id, activity, service_url:)
-    end
-
-    def reply_to_activity(conversation_reference, activity_id, activity_or_text)
-      activity = activity_for_reference(conversation_reference, activity_or_text)
-      activity["replyToId"] ||= activity_id if activity.is_a?(Hash) && activity_id
-
-      api.send_to_conversation(
-        conversation_reference.conversation_id,
-        activity,
-        service_url: conversation_reference.service_url
-      )
+      Api::SentActivity.merge(activity, response)
     end
 
     private
@@ -229,17 +222,16 @@ module Teams
       )
     end
 
+    # Merges only the sender and conversation from the reference, matching the
+    # TypeScript and Python activity senders.
     def activity_for_reference(conversation_reference, activity_or_text)
       activity = normalize_activity(activity_or_text)
       body = activity.respond_to?(:to_h) ? activity.to_h : activity
       return body unless body.is_a?(Hash)
 
       body = body.dup
-      body["from"] ||= conversation_reference.bot.to_h if conversation_reference.bot
-      body["recipient"] ||= conversation_reference.user.to_h if conversation_reference.user
-      body["conversation"] ||= conversation_reference.conversation.to_h
-      body["channelId"] ||= conversation_reference.channel_id if conversation_reference.channel_id
-      body["locale"] ||= conversation_reference.locale if conversation_reference.locale
+      body["from"] = conversation_reference.bot.to_h if conversation_reference.bot
+      body["conversation"] = conversation_reference.conversation.to_h
       body
     end
 
