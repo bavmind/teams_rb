@@ -12,6 +12,7 @@ require "teams"
 
 class FakeApi
   attr_reader :service_url, :sent, :replies, :updates
+  attr_accessor :send_filter
 
   def initialize(service_url: "https://smba.trafficmanager.net/teams")
     @service_url = service_url
@@ -23,6 +24,7 @@ class FakeApi
   def send_to_conversation(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
+    @send_filter&.call(snapshot)
     @sent << [conversation_id, snapshot, service_url]
     { "id" => stream_id_for(payload) || "sent-#{@sent.length}" }
   end

@@ -53,8 +53,8 @@ module Teams
       app.update_activity(conversation_reference, activity_id, activity_or_text)
     end
 
-    def typing
-      post(Api::TypingActivity.new)
+    def typing(text = nil)
+      post(Api::TypingActivity.new(text))
     end
 
     private

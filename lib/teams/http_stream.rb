@@ -2,6 +2,8 @@
 
 module Teams
   class HttpStream
+    STREAM_CHANNEL_DATA_KEYS = %w[streamId streamType streamSequence].freeze
+
     attr_reader :app, :conversation_reference
 
     def initialize(app:, conversation_reference:)
@@ -10,10 +12,15 @@ module Teams
       reset_state
       @result = nil
       @canceled = false
+      @timed_out = false
     end
 
     def canceled
       @canceled
+    end
+
+    def timed_out
+      @timed_out
     end
 
     def closed
@@ -29,7 +36,11 @@ module Teams
     end
 
     def emit(activity_or_text)
-      raise StreamCancelledError, "Teams channel stopped the stream." if canceled
+      raise StreamCancelledError, "Stream has been cancelled." if canceled
+
+      # Emitting after close reopens the stream: start a new streamed message
+      # on the same instance. The canceled flag stays sticky across reuse.
+      reset_for_next_stream if closed
 
       @queue << normalize_activity(activity_or_text)
       flush
@@ -53,33 +64,27 @@ module Teams
       return @result if closed
       return nil if canceled
 
-      flush
+      begin
+        flush
+      rescue StreamCancelledError
+        return nil
+      end
 
       return nil if canceled
       return nil unless final_content?
 
-      activity = (@final_activity || { "type" => "message" }).dup
-      activity["type"] = "message"
-      activity["id"] = @id if @id
-      if !@text.empty? || activity.key?("text")
-        activity["text"] = @text
+      @result = if @timed_out
+        send_final
       else
-        activity.delete("text")
+        begin
+          send_activity(final_stream_activity)
+        rescue StreamTimedOutError
+          # The final streamed send tripped the two-minute limit. Update the
+          # original message in place with the buffered content instead of
+          # posting a duplicate.
+          send_final
+        end
       end
-
-      channel_data = merge_channel_data(activity["channelData"], "streamType" => "final")
-      channel_data.delete("streamSequence")
-      channel_data["streamId"] ||= @id if @id
-      activity["channelData"] = channel_data unless channel_data.empty?
-
-      activity["entities"] = replace_streaminfo_entity(
-        activity["entities"],
-        "type" => "streaminfo",
-        "streamId" => @id,
-        "streamType" => "final"
-      )
-
-      @result = send_activity(activity)
     ensure
       reset_state if @result
     end
@@ -93,6 +98,12 @@ module Teams
       @channel_data = {}
       @final_activity = nil
       @queue = []
+    end
+
+    def reset_for_next_stream
+      reset_state
+      @result = nil
+      @timed_out = false
     end
 
     def flush
@@ -123,6 +134,8 @@ module Teams
     end
 
     def send_stream_chunk(activity)
+      return if @timed_out
+
       body = activity.dup
       body["id"] = @id if @id
 
@@ -142,20 +155,126 @@ module Teams
         )
       )
 
-      result = send_activity(body)
+      result = begin
+        send_activity(body)
+      rescue StreamTimedOutError
+        # A timed-out chunk is swallowed; close sends the buffered content by
+        # updating the original message in place.
+        return
+      end
+
       @sequence += 1
       @id ||= extract_id(result)
     end
 
-    def send_activity(activity)
-      app.send_activity(conversation_reference, activity)
-    rescue HttpError => error
-      if error.status == 403
-        @canceled = true
-        raise StreamCancelledError, "Teams channel stopped the stream."
+    def final_stream_activity
+      activity = (@final_activity || { "type" => "message" }).dup
+      activity["type"] = "message"
+      activity["id"] = @id if @id
+      if !@text.empty? || activity.key?("text")
+        activity["text"] = @text
+      else
+        activity.delete("text")
       end
 
-      raise
+      channel_data = merge_channel_data(activity["channelData"], "streamType" => "final")
+      channel_data.delete("streamSequence")
+      channel_data["streamId"] ||= @id if @id
+      activity["channelData"] = channel_data unless channel_data.empty?
+
+      activity["entities"] = replace_streaminfo_entity(
+        activity["entities"],
+        "type" => "streaminfo",
+        "streamId" => @id,
+        "streamType" => "final"
+      )
+
+      activity
+    end
+
+    # Sends the buffered content as a plain final message. Drops the
+    # streaminfo entity and stream channel data so the send routes through
+    # update (reusing the stream id) instead of creating a duplicate message.
+    def send_final
+      activity = (@final_activity || { "type" => "message" }).dup
+      activity["type"] = "message"
+      activity["id"] = @id if @id
+      if !@text.empty? || activity.key?("text")
+        activity["text"] = @text
+      else
+        activity.delete("text")
+      end
+
+      entities = Array(activity["entities"]).reject do |entity|
+        entity.is_a?(Hash) && entity["type"] == "streaminfo"
+      end
+      entities.empty? ? activity.delete("entities") : activity["entities"] = entities
+
+      channel_data = (activity["channelData"] || {}).reject do |key, _value|
+        STREAM_CHANNEL_DATA_KEYS.include?(key)
+      end
+      channel_data.empty? ? activity.delete("channelData") : activity["channelData"] = channel_data
+
+      send_activity(activity)
+    end
+
+    def send_activity(activity)
+      raise StreamCancelledError, "Stream has been cancelled." if canceled
+
+      body = activity.dup
+      body["from"] = conversation_reference.bot.to_h if conversation_reference.bot
+      body["conversation"] = conversation_reference.conversation.to_h
+
+      # Stream chunks and the streamed final carry a streaminfo entity and are
+      # always created; only the timed-out in-place final routes through update.
+      if body["id"] && !streaminfo_entity?(body)
+        app.api.update_activity(
+          conversation_reference.conversation_id,
+          body["id"],
+          body,
+          service_url: conversation_reference.service_url
+        )
+      else
+        app.api.send_to_conversation(
+          conversation_reference.conversation_id,
+          body,
+          service_url: conversation_reference.service_url
+        )
+      end
+    rescue HttpError => error
+      raise_stream_error(error)
+    end
+
+    def raise_stream_error(error)
+      raise error unless error.status == 403
+
+      message = stream_error_message(error)
+      normalized = message.downcase
+
+      if normalized.include?("exceeded streaming time")
+        @timed_out = true
+        raise StreamTimedOutError, message.empty? ? "Stream exceeded the streaming time limit." : message
+      elsif normalized.include?("cancel")
+        @canceled = true
+        raise StreamCancelledError, message.empty? ? "Teams channel stopped the stream." : message
+      elsif normalized.include?("not allowed") && !normalized.include?("completed streamed message")
+        raise StreamNotAllowedError, message.empty? ? "Streaming is not allowed for the user or bot." : message
+      else
+        raise TerminalStreamError, message.empty? ? "Teams returned a streaming error." : message
+      end
+    end
+
+    def stream_error_message(error)
+      body = error.body
+      return "" unless body.is_a?(Hash)
+
+      body.dig("error", "message").to_s
+    end
+
+    def streaminfo_entity?(body)
+      Array(body["entities"]).any? do |entity|
+        entity.is_a?(Hash) && entity["type"] == "streaminfo"
+      end
     end
 
     def extract_id(result)

@@ -127,6 +127,13 @@ ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
 ctx.post Teams::Api::MessageActivity.new("extended markdown", text_format: "extendedmarkdown")
 ```
 
+For a typing indicator, use `ctx.typing`. Teams renders it as an animated ellipsis in the chat. It accepts optional text for wire parity with the other Teams SDKs, but the Teams client does not display that text on a plain typing activity — for a visible status line, use `ctx.stream.update` instead:
+
+```ruby
+ctx.typing                        # animated ellipsis
+ctx.stream.update("Thinking...")  # visible status line above the streamed response
+```
+
 For streamed responses, use `ctx.stream`:
 
 ```ruby
@@ -136,6 +143,8 @@ teams.on_message do |ctx|
   ctx.stream.emit(", world")
 end
 ```
+
+Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels, and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place.
 
 To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
 

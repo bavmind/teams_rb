@@ -391,12 +391,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 2, @api.updates.size
+    assert_equal 3, @api.sent.size
+    assert_equal 0, @api.updates.size
 
     first = @api.sent[0][1]
-    second = @api.updates[0][2]
-    final = @api.updates[1][2]
+    second = @api.sent[1][1]
+    final = @api.sent[2][1]
 
     assert_equal "typing", first["type"]
     assert_equal "Hello", first["text"]
@@ -427,12 +427,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 2, @api.updates.size
+    assert_equal 3, @api.sent.size
+    assert_equal 0, @api.updates.size
 
     informative = @api.sent[0][1]
-    chunk = @api.updates[0][2]
-    final = @api.updates[1][2]
+    chunk = @api.sent[1][1]
+    final = @api.sent[2][1]
 
     assert_equal "typing", informative["type"]
     assert_equal "Thinking...", informative["text"]
@@ -469,10 +469,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 1, @api.updates.size
+    assert_equal 2, @api.sent.size
+    assert_equal 0, @api.updates.size
 
-    final = @api.updates.last[2]
+    final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
     assert_equal "Hello", final["text"]
@@ -531,10 +531,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 1, @api.updates.size
+    assert_equal 2, @api.sent.size
+    assert_equal 0, @api.updates.size
 
-    final = @api.updates.last[2]
+    final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
     refute final.key?("text")
@@ -552,8 +552,168 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
+    assert_equal 0, @api.updates.size
     assert_equal "discard this", @api.sent[0][1]["text"]
-    assert_equal "keep this", @api.updates[0][2]["text"]
-    assert_equal "keep this", @api.updates[1][2]["text"]
+    assert_equal "keep this", @api.sent[1][1]["text"]
+    assert_equal "keep this", @api.sent[2][1]["text"]
+  end
+
+  def test_stream_maps_403_error_messages_to_typed_errors
+    {
+      "Content stream was canceled by user." => Teams::StreamCancelledError,
+      "Content stream is not allowed" => Teams::StreamNotAllowedError,
+      "Content stream is not allowed on an already completed streamed message" => Teams::TerminalStreamError,
+      "Message size too large" => Teams::TerminalStreamError,
+      "Request streamed content should contain the previously streamed content" => Teams::TerminalStreamError
+    }.each do |message, expected|
+      api = FakeApi.new
+      api.send_filter = ->(_payload) { raise stream_http_error(message) }
+      stream = build_stream(api)
+
+      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.emit "hi" }
+      assert_instance_of expected, error, "wrong error class for #{message.inspect}"
+      assert_equal message, error.message
+    end
+  end
+
+  def test_stream_403_with_empty_body_maps_to_terminal_error
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error }
+    stream = build_stream(api)
+
+    error = assert_raises(Teams::TerminalStreamError) { stream.emit "hi" }
+    assert_instance_of Teams::TerminalStreamError, error
+  end
+
+  def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream is not allowed") }
+    stream = build_stream(api)
+
+    assert_raises(Teams::StreamNotAllowedError) { stream.emit "hi" }
+    refute stream.canceled
+    refute stream.timed_out
+  end
+
+  def test_stream_cancel_is_sticky_and_close_returns_nil
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
+    stream = build_stream(api)
+
+    assert_raises(Teams::StreamCancelledError) { stream.emit "hi" }
+    assert stream.canceled
+    assert_nil stream.close
+
+    api.send_filter = nil
+    error = assert_raises(Teams::StreamCancelledError) { stream.emit "again" }
+    assert_equal "Stream has been cancelled.", error.message
+  end
+
+  def test_stream_chunk_timeout_is_swallowed_and_close_updates_in_place
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "Hello"
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream finished due to exceeded streaming time.") }
+    stream.emit ", world"
+
+    assert stream.timed_out
+    api.send_filter = nil
+
+    result = stream.close
+
+    assert_equal({ "id" => "sent-1" }, result)
+    assert_equal 1, api.sent.size
+    assert_equal 1, api.updates.size
+
+    final = api.updates.last[2]
+    assert_equal "message", final["type"]
+    assert_equal "Hello, world", final["text"]
+    assert_equal "sent-1", final["id"]
+    refute final.key?("channelData")
+    refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
+  end
+
+  def test_stream_final_send_timeout_falls_back_to_in_place_update
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "Hello"
+    api.send_filter = lambda do |payload|
+      raise stream_http_error("Content stream finished due to exceeded streaming time.") if payload["type"] == "message"
+    end
+
+    result = stream.close
+
+    assert stream.timed_out
+    assert_equal({ "id" => "sent-1" }, result)
+    assert_equal 1, api.updates.size
+
+    final = api.updates.last[2]
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+    assert_equal "sent-1", final["id"]
+    refute final.key?("channelData")
+    refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
+  end
+
+  def test_stream_reusable_after_close_starts_new_streamed_message
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "one"
+    first = stream.close
+
+    assert stream.closed
+    assert_same first, stream.close
+
+    stream.emit "two"
+
+    refute stream.closed
+    second = stream.close
+
+    assert_equal "sent-1", first["id"]
+    assert_equal "sent-3", second["id"]
+    assert_equal 4, api.sent.size
+    assert_equal 0, api.updates.size
+
+    second_chunk = api.sent[2][1]
+    assert_equal 1, second_chunk.dig("channelData", "streamSequence")
+
+    second_final = api.sent[3][1]
+    assert_equal "sent-3", second_final["entities"].first["streamId"]
+  end
+
+  def test_typing_accepts_optional_text
+    @teams.on_message do |ctx|
+      ctx.typing
+      ctx.typing "Thinking..."
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+
+    plain = @api.sent[0][1]
+    with_text = @api.sent[1][1]
+
+    assert_equal "typing", plain["type"]
+    refute plain.key?("text")
+    assert_equal "typing", with_text["type"]
+    assert_equal "Thinking...", with_text["text"]
+  end
+
+  private
+
+  def build_stream(api)
+    teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
+    activity = Teams::Activity.new(teams_payload)
+    conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
+    Teams::HttpStream.new(app: teams, conversation_reference:)
+  end
+
+  def stream_http_error(message = nil)
+    body = message ? { "error" => { "message" => message } } : ""
+    Teams::HttpError.new("HTTP request failed with status 403", status: 403, headers: {}, body:)
   end
 end
