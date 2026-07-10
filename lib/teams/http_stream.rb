@@ -139,19 +139,18 @@ module Teams
       body = activity.dup
       body["id"] = @id if @id
 
-      channel_data = merge_channel_data(body["channelData"])
-      channel_data["streamId"] ||= @id if @id
-      channel_data["streamType"] ||= "streaming"
-      channel_data["streamSequence"] ||= @sequence
-      body["channelData"] = channel_data
+      activity_channel_data = body["channelData"] || {}
+      stream_type = activity_channel_data["streamType"] || "streaming"
+      stream_sequence = activity_channel_data["streamSequence"] || @sequence
+      strip_stream_channel_data(body, merge_channel_data(body["channelData"]))
 
       body["entities"] = replace_streaminfo_entity(
         body["entities"],
         compact_hash(
           "type" => "streaminfo",
           "streamId" => @id,
-          "streamType" => channel_data["streamType"],
-          "streamSequence" => channel_data["streamSequence"]
+          "streamType" => stream_type,
+          "streamSequence" => stream_sequence
         )
       )
 
@@ -177,10 +176,7 @@ module Teams
         activity.delete("text")
       end
 
-      channel_data = merge_channel_data(activity["channelData"], "streamType" => "final")
-      channel_data.delete("streamSequence")
-      channel_data["streamId"] ||= @id if @id
-      activity["channelData"] = channel_data unless channel_data.empty?
+      strip_stream_channel_data(activity, merge_channel_data(activity["channelData"]))
 
       activity["entities"] = replace_streaminfo_entity(
         activity["entities"],
@@ -210,12 +206,20 @@ module Teams
       end
       entities.empty? ? activity.delete("entities") : activity["entities"] = entities
 
-      channel_data = (activity["channelData"] || {}).reject do |key, _value|
-        STREAM_CHANNEL_DATA_KEYS.include?(key)
-      end
-      channel_data.empty? ? activity.delete("channelData") : activity["channelData"] = channel_data
+      strip_stream_channel_data(activity, activity["channelData"] || {})
 
       send_activity(activity)
+    end
+
+    # Teams' documented streaming protocol carries stream metadata only in the
+    # streaminfo entity. The channelData stream markers the other SDKs also
+    # send make Teams bind a new stream to an already completed one and reject
+    # it with 403, so they are deliberately never sent (approved deviation,
+    # see AGENTS.md).
+    def strip_stream_channel_data(body, channel_data)
+      remaining = channel_data.reject { |key, _value| STREAM_CHANNEL_DATA_KEYS.include?(key) }
+      remaining.empty? ? body.delete("channelData") : body["channelData"] = remaining
+      body
     end
 
     def send_activity(activity)
