@@ -689,6 +689,136 @@ class AppTest < Minitest::Test
     assert_equal "sent-3", second_final["entities"].first["streamId"]
   end
 
+  def test_post_defaults_to_targeted_when_inbound_message_is_targeted
+    @teams.on_message { |ctx| ctx.post "Secret message" }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Secret message", outbound["text"]
+    assert_equal "user-1", outbound.dig("recipient", "id")
+    assert_equal "User One", outbound.dig("recipient", "name")
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_reply_defaults_to_targeted_without_quoting
+    @teams.on_message { |ctx| ctx.reply "Private reply" }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Private reply", outbound["text"]
+    refute outbound.key?("replyToId")
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    refute(Array(outbound["entities"]).any? { |entity| entity["type"] == "quotedReply" })
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_explicit_recipient_opts_out_of_targeted_defaulting
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Public message").with_recipient({ "id" => "user-1", "name" => "User One" })
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.targeted_sent
+    assert_equal 1, @api.sent.size
+
+    outbound = @api.sent.first[1]
+    assert_equal "user-1", outbound.dig("recipient", "id")
+    refute outbound.dig("recipient", "isTargeted")
+    refute outbound.key?("entities")
+  end
+
+  def test_update_does_not_default_to_targeted
+    @teams.on_message { |ctx| ctx.update "assistant-activity-1", "Edited." }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.targeted_sent
+    assert_empty @api.targeted_updates
+    assert_equal 1, @api.updates.size
+  end
+
+  def test_targeted_outbound_strips_quoted_reply_metadata
+    @teams.on_message do |ctx|
+      ctx.post(
+        "type" => "message",
+        "text" => %(<quoted messageId="activity-1"/> Secret),
+        "entities" => [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }]
+      )
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Secret", outbound["text"]
+    refute(outbound["entities"].any? { |entity| entity["type"] == "quotedReply" })
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_explicit_targeted_send_from_public_inbound_has_no_targeted_message_info
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Targeted send").with_recipient(
+        { "id" => "user-1", "name" => "User One" }, is_targeted: true
+      )
+    end
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("conversationType" => "groupChat")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    refute(Array(outbound["entities"]).any? { |entity| entity["type"] == "targetedMessageInfo" })
+  end
+
+  def test_targeted_update_routes_to_targeted_update
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
+        { "id" => "user-1" }, is_targeted: true
+      )
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.updates
+    assert_equal 1, @api.targeted_updates.size
+    assert_equal "existing-1", @api.targeted_updates.first[1]
+  end
+
+  def test_targeted_send_in_personal_chat_raises
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("conversationType" => "personal")
+    reference = Teams::Api::ConversationReference.from_activity(Teams::Activity.new(payload))
+
+    error = assert_raises(ArgumentError) do
+      @teams.send_activity(
+        reference,
+        Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
+      )
+    end
+
+    assert_equal "Targeted messages are not supported in 1:1 (personal) chats.", error.message
+    assert_empty @api.targeted_sent
+  end
+
   def test_typing_accepts_optional_text
     @teams.on_message do |ctx|
       ctx.typing

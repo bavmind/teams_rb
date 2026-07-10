@@ -134,6 +134,14 @@ ctx.typing                        # animated ellipsis
 ctx.stream.update("Thinking...")  # visible status line above the streamed response
 ```
 
+When the inbound message is targeted (visible only to the sender), `ctx.post` and `ctx.reply` automatically respond as targeted messages to that sender, matching the other Teams SDKs: the recipient is inferred, a `targetedMessageInfo` entity is attached for prompt preview, and the send routes through the targeted activity endpoints. Pass an explicit recipient to opt out, or send an explicitly targeted message from any handler:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Only for you").with_recipient(account, is_targeted: true)
+```
+
+Targeted messages are rejected in 1:1 (personal) chats, where every message is already private.
+
 For streamed responses, use `ctx.stream`:
 
 ```ruby

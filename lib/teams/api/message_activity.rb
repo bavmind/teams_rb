@@ -7,7 +7,7 @@ module Teams
       FEEDBACK_MODES = %w[default custom].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
-      attr_reader :id, :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data
+      attr_reader :id, :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data, :recipient
 
       def initialize(text = nil, id: nil, attachments: [], text_format: nil, summary: nil, input_hint: nil)
         @id = id
@@ -18,6 +18,7 @@ module Teams
         @input_hint = input_hint
         @entities = []
         @channel_data = {}
+        @recipient = nil
       end
 
       def add_text(value)
@@ -61,6 +62,28 @@ module Teams
         self
       end
 
+      def with_recipient(account, is_targeted: nil)
+        body = account.respond_to?(:to_h) ? account.to_h : account
+        body = body.dup
+        body["isTargeted"] = is_targeted unless is_targeted.nil?
+        @recipient = body
+        self
+      end
+
+      # Adds a targetedMessageInfo entity for prompt preview, once per message.
+      # Any quotedReply entities and the matching quote placeholder are removed
+      # to avoid collision with the prompt preview.
+      def add_targeted_message_info(message_id)
+        @entities.reject! { |entity| quoted_reply_entity?(entity) }
+        @text = text.gsub(%(<quoted messageId="#{message_id}"/>), "").strip if text
+
+        unless @entities.any? { |entity| entity_type(entity) == "targetedMessageInfo" }
+          @entities << { "type" => "targetedMessageInfo", "messageId" => message_id }
+        end
+
+        self
+      end
+
       def add_ai_generated
         entity = ensure_single_root_level_message_entity
         additional_types = Array(entity["additionalType"])
@@ -97,6 +120,7 @@ module Teams
         body["attachments"] = attachments unless attachments.empty?
         body["entities"] = @entities.map { |entity| entity.respond_to?(:to_h) ? entity.to_h : entity } unless @entities.empty?
         body["channelData"] = channel_data unless channel_data.empty?
+        body["recipient"] = recipient if recipient
         body
       end
 

@@ -284,6 +284,39 @@ class MessageActivityTest < Minitest::Test
 
     assert_equal ["quotedReply", "https://schema.org/Message"], activity.to_h["entities"].map { |entity| entity["type"] }
   end
+
+  def test_with_recipient_serializes_recipient
+    activity = Teams::Api::MessageActivity.new("hello")
+      .with_recipient({ "id" => "user-1", "name" => "User One" }, is_targeted: true)
+
+    assert_equal(
+      { "id" => "user-1", "name" => "User One", "isTargeted" => true },
+      activity.to_h["recipient"]
+    )
+  end
+
+  def test_with_recipient_leaves_targeting_unchanged_by_default
+    activity = Teams::Api::MessageActivity.new("hello")
+      .with_recipient({ "id" => "user-1", "isTargeted" => true })
+
+    assert_equal true, activity.to_h.dig("recipient", "isTargeted")
+
+    activity = Teams::Api::MessageActivity.new("hello").with_recipient({ "id" => "user-1" })
+
+    refute activity.to_h["recipient"].key?("isTargeted")
+  end
+
+  def test_add_targeted_message_info_strips_quote_artifacts_and_dedupes
+    activity = Teams::Api::MessageActivity.new("Secret")
+      .prepend_quote("msg-1")
+      .add_targeted_message_info("msg-1")
+      .add_targeted_message_info("msg-1")
+
+    body = activity.to_h
+
+    assert_equal "Secret", body["text"]
+    assert_equal [{ "type" => "targetedMessageInfo", "messageId" => "msg-1" }], body["entities"]
+  end
 end
 
 class QuotedReplyEntityTest < Minitest::Test

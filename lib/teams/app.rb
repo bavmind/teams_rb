@@ -148,20 +148,25 @@ module Teams
 
     def send_activity(conversation_reference, activity_or_text)
       activity = activity_for_reference(conversation_reference, activity_or_text)
+      targeted = targeted_activity?(activity)
+
+      if targeted && conversation_reference.conversation.conversation_type == "personal"
+        raise ArgumentError, "Targeted messages are not supported in 1:1 (personal) chats."
+      end
+
       id = activity_id(activity)
+      conversation_id = conversation_reference.conversation_id
+      service_url = conversation_reference.service_url
 
-      return api.update_activity(
-        conversation_reference.conversation_id,
-        id,
-        activity,
-        service_url: conversation_reference.service_url
-      ) if id
+      if id
+        return api.update_targeted_activity(conversation_id, id, activity, service_url:) if targeted
 
-      api.send_to_conversation(
-        conversation_reference.conversation_id,
-        activity,
-        service_url: conversation_reference.service_url
-      )
+        return api.update_activity(conversation_id, id, activity, service_url:)
+      end
+
+      return api.send_targeted_to_conversation(conversation_id, activity, service_url:) if targeted
+
+      api.send_to_conversation(conversation_id, activity, service_url:)
     end
 
     def reply_to_activity(conversation_reference, activity_id, activity_or_text)
@@ -242,6 +247,12 @@ module Teams
       return unless activity.is_a?(Hash)
 
       activity["id"] || activity[:id]
+    end
+
+    def targeted_activity?(activity)
+      activity.is_a?(Hash) &&
+        activity["type"] == "message" &&
+        activity.dig("recipient", "isTargeted") == true
     end
 
     def assert_string!(value, name)
