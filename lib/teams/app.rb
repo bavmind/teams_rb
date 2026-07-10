@@ -137,15 +137,13 @@ module Teams
       end
     end
 
+    # Sugar over post: the SDKs update by sending an activity that already
+    # carries an id, and post does exactly that. See AGENTS.md.
     def update(conversation_id, activity_id, activity_or_text, service_url: nil)
       assert_string!(conversation_id, "conversation_id")
       assert_string!(activity_id, "activity_id")
 
-      update_activity(
-        proactive_reference(conversation_id, service_url:),
-        activity_id,
-        activity_or_text
-      )
+      post(conversation_id, activity_with_id(activity_id, activity_or_text), service_url:)
     end
 
     def send_activity(conversation_reference, activity_or_text)
@@ -177,16 +175,13 @@ module Teams
       )
     end
 
-    def update_activity(conversation_reference, activity_id, activity_or_text)
-      api.update_activity(
-        conversation_reference.conversation_id,
-        activity_id,
-        activity_for_reference(conversation_reference, activity_or_text),
-        service_url: conversation_reference.service_url
-      )
-    end
-
     private
+
+    def activity_with_id(activity_id, activity_or_text)
+      outbound = normalize_activity(activity_or_text)
+      body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
+      body.merge("id" => activity_id)
+    end
 
     def validate_inbound!(env, activity)
       return if @skip_auth

@@ -144,7 +144,7 @@ teams.on_message do |ctx|
 end
 ```
 
-Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. Note that live Teams currently rejects a second streamed message within the same inbound turn with a 403 (`Teams::TerminalStreamError`), even though all official Teams SDKs implement stream reuse; use one streamed message per inbound message. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels, and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place.
+Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels, and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place.
 
 To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
 

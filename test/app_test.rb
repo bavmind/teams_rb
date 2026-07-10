@@ -400,25 +400,21 @@ class AppTest < Minitest::Test
 
     assert_equal "typing", first["type"]
     assert_equal "Hello", first["text"]
-    refute first.key?("channelData")
-    assert_equal(
-      { "type" => "streaminfo", "streamType" => "streaming", "streamSequence" => 1 },
-      first["entities"].first
-    )
+    assert_equal 1, first.dig("channelData", "streamSequence")
+    assert_equal "streaming", first.dig("channelData", "streamType")
+    assert_equal "streaminfo", first["entities"].first["type"]
 
     assert_equal "typing", second["type"]
     assert_equal "Hello, world", second["text"]
     assert_equal "sent-1", second["id"]
-    refute second.key?("channelData")
-    assert_equal(
-      { "type" => "streaminfo", "streamId" => "sent-1", "streamType" => "streaming", "streamSequence" => 2 },
-      second["entities"].first
-    )
+    assert_equal "sent-1", second.dig("channelData", "streamId")
+    assert_equal 2, second.dig("channelData", "streamSequence")
 
     assert_equal "message", final["type"]
     assert_equal "Hello, world", final["text"]
     assert_equal "sent-1", final["id"]
-    refute final.key?("channelData")
+    assert_equal "final", final.dig("channelData", "streamType")
+    refute final.dig("channelData", "streamSequence")
     assert_equal({ "type" => "streaminfo", "streamId" => "sent-1", "streamType" => "final" }, final["entities"].first)
   end
 
@@ -440,16 +436,13 @@ class AppTest < Minitest::Test
 
     assert_equal "typing", informative["type"]
     assert_equal "Thinking...", informative["text"]
-    refute informative.key?("channelData")
-    assert_equal(
-      { "type" => "streaminfo", "streamType" => "informative", "streamSequence" => 1 },
-      informative["entities"].first
-    )
+    assert_equal "informative", informative.dig("channelData", "streamType")
+    assert_equal 1, informative.dig("channelData", "streamSequence")
 
     assert_equal "typing", chunk["type"]
     assert_equal "Hello", chunk["text"]
-    assert_equal "streaming", chunk["entities"].first["streamType"]
-    assert_equal 2, chunk["entities"].first["streamSequence"]
+    assert_equal "streaming", chunk.dig("channelData", "streamType")
+    assert_equal 2, chunk.dig("channelData", "streamSequence")
 
     assert_equal "message", final["type"]
     assert_equal "Hello", final["text"]
@@ -518,7 +511,7 @@ class AppTest < Minitest::Test
     assert_equal "message", final["type"]
     refute final.key?("text")
     assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
-    assert_equal "final", final["entities"].first["streamType"]
+    assert_equal "final", final.dig("channelData", "streamType")
   end
 
   def test_stream_clear_text_discards_accumulated_text_before_card_final
@@ -547,7 +540,7 @@ class AppTest < Minitest::Test
     assert_equal "message", final["type"]
     refute final.key?("text")
     assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
-    assert_equal "final", final["entities"].first["streamType"]
+    assert_equal "final", final.dig("channelData", "streamType")
   end
 
   def test_stream_clear_text_allows_later_text
@@ -686,8 +679,11 @@ class AppTest < Minitest::Test
     assert_equal 0, api.updates.size
 
     second_chunk = api.sent[2][1]
-    refute second_chunk.key?("channelData")
-    assert_equal 1, second_chunk["entities"].first["streamSequence"]
+    refute second_chunk.key?("id")
+    refute second_chunk.dig("channelData", "streamId")
+    assert_equal 1, second_chunk.dig("channelData", "streamSequence")
+    assert_equal "one", api.sent[1][1]["text"]
+    assert_equal "two", second_chunk["text"]
 
     second_final = api.sent[3][1]
     assert_equal "sent-3", second_final["entities"].first["streamId"]

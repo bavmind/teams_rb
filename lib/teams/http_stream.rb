@@ -73,7 +73,7 @@ module Teams
       return nil if canceled
       return nil unless final_content?
 
-      @result = if @timed_out
+      response = if @timed_out
         send_final
       else
         begin
@@ -85,6 +85,11 @@ module Teams
           send_final
         end
       end
+
+      # Live Teams answers follow-up stream posts with 202 and an empty body,
+      # so the close result is synthesized from the stream id when the final
+      # send returns none. @result doubling as the closed flag depends on it.
+      @result = response.is_a?(Hash) && response["id"] ? response : compact_hash("id" => @id)
     ensure
       reset_state if @result
     end
@@ -139,18 +144,21 @@ module Teams
       body = activity.dup
       body["id"] = @id if @id
 
-      activity_channel_data = body["channelData"] || {}
-      stream_type = activity_channel_data["streamType"] || "streaming"
-      stream_sequence = activity_channel_data["streamSequence"] || @sequence
-      strip_stream_channel_data(body, merge_channel_data(body["channelData"]))
+      channel_data = merge_channel_data(body["channelData"])
+      channel_data["streamId"] ||= @id if @id
+      # The chunk's own stream type wins; merged channel data must not leak a
+      # previous informative marker into regular streaming chunks.
+      channel_data["streamType"] = activity.dig("channelData", "streamType") || "streaming"
+      channel_data["streamSequence"] ||= @sequence
+      body["channelData"] = channel_data
 
       body["entities"] = replace_streaminfo_entity(
         body["entities"],
         compact_hash(
           "type" => "streaminfo",
           "streamId" => @id,
-          "streamType" => stream_type,
-          "streamSequence" => stream_sequence
+          "streamType" => channel_data["streamType"],
+          "streamSequence" => channel_data["streamSequence"]
         )
       )
 
@@ -176,7 +184,10 @@ module Teams
         activity.delete("text")
       end
 
-      strip_stream_channel_data(activity, merge_channel_data(activity["channelData"]))
+      channel_data = merge_channel_data(activity["channelData"], "streamType" => "final")
+      channel_data.delete("streamSequence")
+      channel_data["streamId"] ||= @id if @id
+      activity["channelData"] = channel_data unless channel_data.empty?
 
       activity["entities"] = replace_streaminfo_entity(
         activity["entities"],
@@ -211,11 +222,8 @@ module Teams
       send_activity(activity)
     end
 
-    # Teams' documented streaming protocol carries stream metadata only in the
-    # streaminfo entity. The channelData stream markers the other SDKs also
-    # send make Teams bind a new stream to an already completed one and reject
-    # it with 403, so they are deliberately never sent (approved deviation,
-    # see AGENTS.md).
+    # Removes the stream markers from channel data for the timed-out in-place
+    # final, so the send is treated as a normal message edit (.NET behavior).
     def strip_stream_channel_data(body, channel_data)
       remaining = channel_data.reject { |key, _value| STREAM_CHANNEL_DATA_KEYS.include?(key) }
       remaining.empty? ? body.delete("channelData") : body["channelData"] = remaining

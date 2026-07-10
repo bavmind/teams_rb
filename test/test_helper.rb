@@ -26,7 +26,12 @@ class FakeApi
     snapshot = Marshal.load(Marshal.dump(payload))
     @send_filter&.call(snapshot)
     @sent << [conversation_id, snapshot, service_url]
-    { "id" => stream_id_for(payload) || "sent-#{@sent.length}" }
+
+    # Live Teams answers the stream-starting post with 201 and an id, but
+    # follow-up posts that carry a streamId get 202 with an empty body.
+    return nil if stream_id_for(payload)
+
+    { "id" => "sent-#{@sent.length}" }
   end
 
   def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)

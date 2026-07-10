@@ -49,8 +49,10 @@ module Teams
       app.reply_to_activity(conversation_reference, message_id, quoted_activity(message_id, activity_or_text))
     end
 
+    # Sugar over post: the SDKs update by sending an activity that already
+    # carries an id, and post does exactly that. See AGENTS.md.
     def update(activity_id, activity_or_text)
-      app.update_activity(conversation_reference, activity_id, activity_or_text)
+      post(activity_with_id(activity_id, activity_or_text))
     end
 
     def typing(text = nil)
@@ -58,6 +60,12 @@ module Teams
     end
 
     private
+
+    def activity_with_id(activity_id, activity_or_text)
+      outbound = normalize_activity(activity_or_text)
+      body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
+      body.merge("id" => activity_id)
+    end
 
     def quoted_activity(message_id, activity_or_text)
       outbound = normalize_activity(activity_or_text)
