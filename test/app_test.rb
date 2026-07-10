@@ -115,13 +115,6 @@ class AppTest < Minitest::Test
     assert_equal 400, last_response.status
   end
 
-  def test_service_url_validation_rejects_untrusted_host
-    post "/api/messages", JSON.generate(teams_payload(service_url: "https://evil.example.com/teams")), { "CONTENT_TYPE" => "application/json" }
-
-    assert_equal 400, last_response.status
-    assert_includes last_response.body, "serviceUrl host is not allowed"
-  end
-
   def test_sends_return_sent_activity_with_id
     proactive = @teams.post("conversation-2", "hello")
 

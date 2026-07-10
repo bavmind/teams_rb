@@ -7,8 +7,6 @@ module Teams
 
   class AuthenticationError < Error; end
 
-  class ServiceUrlError < Error; end
-
   class BadRequestError < Error; end
 
   # Raised when Teams cancels a stream (for example, the user pressed Stop)

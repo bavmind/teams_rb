@@ -19,7 +19,7 @@ module Teams
       rack_response(response)
     rescue JSON::ParserError
       rack_response(Response.new(status: 400, body: { error: "invalid JSON" }))
-    rescue BadRequestError, AuthenticationError, ServiceUrlError => error
+    rescue BadRequestError, AuthenticationError => error
       rack_response(Response.new(status: error_status(error), body: { error: error.message }))
     rescue StandardError => error
       @app.logger.error("Error processing Teams activity: #{error.class}: #{error.message}")

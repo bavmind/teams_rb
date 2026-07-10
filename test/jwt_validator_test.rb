@@ -98,8 +98,7 @@ class JwtValidatorTest < Minitest::Test
       token_service_url: "https://token.botframework.com",
       open_id_metadata_url: "https://login.example.com/.well-known/openidconfiguration",
       token_issuer: "https://api.botframework.com",
-      graph_scope: "https://graph.microsoft.com/.default",
-      allowed_service_urls: ["smba.trafficmanager.net"]
+      graph_scope: "https://graph.microsoft.com/.default"
     )
     http = FakeHttp.new(
       "https://login.example.com/.well-known/openidconfiguration" => { "jwks_uri" => "https://login.example.com/keys" },

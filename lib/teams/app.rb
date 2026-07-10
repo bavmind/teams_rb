@@ -19,15 +19,12 @@ module Teams
       api: nil,
       token_manager: nil,
       skip_auth: false,
-      additional_allowed_domains: [],
-      skip_service_url_validation: false,
       messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT
     )
       @logger = logger
       @storage = storage
       @cloud = cloud
       @skip_auth = skip_auth
-      @skip_service_url_validation = skip_service_url_validation
       @messaging_endpoint = normalize_messaging_endpoint(messaging_endpoint)
       @router = Router.new
 
@@ -42,7 +39,6 @@ module Teams
         tenant_id: @token_manager.credentials&.tenant_id,
         cloud:
       ) if @token_manager.client_id
-      @service_url_validator = Auth::ServiceUrlValidator.new(cloud:, additional_allowed_domains:)
     end
 
     def to_rack
@@ -92,7 +88,6 @@ module Teams
     def process_inbound(payload, env: {})
       activity = Activity.new(payload)
       validate_inbound!(env, activity)
-      validate_service_url!(activity)
 
       conversation_reference = Api::ConversationReference.from_activity(activity)
       context = ActivityContext.new(
@@ -187,12 +182,6 @@ module Teams
       raise AuthenticationError, "CLIENT_ID is required for inbound validation" unless @jwt_validator
 
       @jwt_validator.validate!(env["HTTP_AUTHORIZATION"], service_url: activity.service_url)
-    end
-
-    def validate_service_url!(activity)
-      return if @skip_service_url_validation
-
-      @service_url_validator.validate!(activity.service_url)
     end
 
     def run_handlers(context)
