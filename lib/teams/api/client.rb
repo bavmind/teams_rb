@@ -34,6 +34,13 @@ module Teams
         http.put(url, json: activity_to_h(activity))
       end
 
+      def delete_activity(conversation_id, activity_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API DELETE #{url}")
+        http.delete(url)
+      end
+
       def reactions
         @reactions ||= ReactionClient.new(service_url:, http:)
       end

@@ -35,6 +35,32 @@ class ApiClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  def test_deletes_activity
+    stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+      stub.delete("/teams/v3/conversations/conversation-1/activities/activity-1") do |env|
+        assert_nil env.body
+
+        [200, {}, ""]
+      end
+    end
+    client = api_client(stubs)
+
+    assert_nil client.delete_activity("conversation-1", "activity-1")
+    stubs.verify_stubbed_calls
+  end
+
+  def test_escapes_delete_activity_path_values
+    stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+      stub.delete("/teams/v3/conversations/a%3A1/activities/activity+1") do
+        [200, {}, ""]
+      end
+    end
+    client = api_client(stubs)
+
+    client.delete_activity("a:1", "activity 1")
+    stubs.verify_stubbed_calls
+  end
+
   private
 
   def api_client(stubs)
