@@ -77,7 +77,7 @@ module Teams
         when String
           MessageActivity.new(activity).to_h
         when Hash
-          activity
+          Common::Hashes.deep_stringify_keys(activity)
         else
           activity.respond_to?(:to_h) ? activity.to_h : activity
         end

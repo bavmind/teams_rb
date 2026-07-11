@@ -2,6 +2,7 @@
 
 require_relative "teams/version"
 require_relative "teams/errors"
+require_relative "teams/common/hashes"
 require_relative "teams/cloud_environment"
 require_relative "teams/cards"
 require_relative "teams/cards/generated"

@@ -333,7 +333,7 @@ module Teams
       when Cards::AdaptiveCard
         Api::MessageActivity.new.add_card(activity_or_text).to_h
       when Hash
-        activity_or_text.dup
+        Common::Hashes.deep_stringify_keys(activity_or_text)
       else
         activity_or_text.respond_to?(:to_h) ? activity_or_text.to_h : activity_or_text
       end

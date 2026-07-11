@@ -235,6 +235,26 @@ class AppTest < Minitest::Test
     assert_equal "markdown", @api.sent.first[1]["textFormat"]
   end
 
+  def test_hash_activities_accept_symbol_keys
+    @teams.on_message do |ctx|
+      ctx.post({ type: "message", text: "symbols", channelData: { feedbackLoop: { type: "default" } } })
+      ctx.stream.emit({ type: "message", text: "streamed symbols" })
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+
+    plain = @api.sent.first[1]
+    assert_equal "symbols", plain["text"]
+    assert_equal({ "type" => "default" }, plain.dig("channelData", "feedbackLoop"))
+
+    chunk = @api.sent[1][1]
+    assert_equal "typing", chunk["type"]
+    assert_equal "streamed symbols", chunk["text"]
+    assert_equal "streaming", chunk.dig("channelData", "streamType")
+  end
+
   def test_suggested_action_submit_handler
     values = []
 

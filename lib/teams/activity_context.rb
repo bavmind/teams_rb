@@ -157,6 +157,8 @@ module Teams
         Api::MessageActivity.new(activity_or_text)
       when Cards::AdaptiveCard
         Api::MessageActivity.new.add_card(activity_or_text)
+      when Hash
+        Common::Hashes.deep_stringify_keys(activity_or_text)
       else
         activity_or_text
       end
