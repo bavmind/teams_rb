@@ -88,6 +88,18 @@ module Teams
       self
     end
 
+    # Meeting start/end events (Teams posts them to bots installed in the
+    # meeting chat when the meeting begins and ends).
+    def on_meeting_start(&block)
+      @router.on_meeting_start(&block)
+      self
+    end
+
+    def on_meeting_end(&block)
+      @router.on_meeting_end(&block)
+      self
+    end
+
     # Message extension handlers (on_message_ext_query, on_message_ext_submit,
     # on_message_ext_open, ...) route the composeExtension/* invokes with the
     # TypeScript/Python route names. Handler return values (typed responses

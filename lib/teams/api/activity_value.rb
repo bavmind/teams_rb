@@ -18,6 +18,32 @@ module Teams
       def parameters
         Array(read("parameters"))
       end
+
+      # Meeting start/end event fields. Teams sends these PascalCase on the
+      # wire (Id, JoinUrl, Title, MeetingType, StartTime, EndTime).
+      def id
+        read("Id", "id")
+      end
+
+      def title
+        read("Title", "title")
+      end
+
+      def meeting_type
+        read("MeetingType", "meetingType", "meeting_type")
+      end
+
+      def join_url
+        read("JoinUrl", "joinUrl", "join_url")
+      end
+
+      def start_time
+        read("StartTime", "startTime", "start_time")
+      end
+
+      def end_time
+        read("EndTime", "endTime", "end_time")
+      end
     end
   end
 end

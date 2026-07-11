@@ -431,7 +431,7 @@ If the tunnel URL is stable (Dev Tunnels URLs are), steps 1–3 are one-time set
 
 | Surface | Methods |
 |---|---|
-| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
+| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_message_ext_*` (nine composeExtension routes), `on_meeting_start`, `on_meeting_end`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
 | Context (`ctx`) | `activity`, `ref` / `conversation_reference`, `post`, `reply`, `quote(message_id, ...)`, `update(activity_id, ...)`, `typing(text = nil)`, `stream` (`emit`, `update`, `clear_text`, `close`, `on_chunk`, `on_close`), `api`, `storage`, `log` |
 | Proactive (`teams`) | `post(conversation_id, activity)`, `reply(conversation_id, activity_id, activity)`, `update(conversation_id, activity_id, activity)`, `send_activity(reference, activity)` |
 | API client (`teams.api`) | `conversations` (`create`, `create_activity`, `reply_to_activity`, `update_activity`, `delete_activity`, targeted variants, `get_members`, `get_member_by_id`, `get_paged_members`, `get_activity_members`, `add_reaction`, `delete_reaction`), `teams` (`get_by_id`, `get_conversations`), `meetings` (`get_by_id`, `get_participant`, `send_notification`) |

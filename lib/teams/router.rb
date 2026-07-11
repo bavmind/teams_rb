@@ -56,6 +56,14 @@ module Teams
       register("dialog.submit", dialog_selector("task/submit", "action", action), &block)
     end
 
+    def on_meeting_start(&block)
+      register("meeting_start", event_selector("application/vnd.microsoft.meetingStart"), &block)
+    end
+
+    def on_meeting_end(&block)
+      register("meeting_end", event_selector("application/vnd.microsoft.meetingEnd"), &block)
+    end
+
     # Message extension (compose extension) invoke routes, using the same
     # route names as the TypeScript and Python SDKs.
     MESSAGE_EXTENSION_ROUTES = {
@@ -112,6 +120,10 @@ module Teams
 
     def invoke_selector(invoke_name)
       ->(activity) { activity.invoke? && activity.name == invoke_name }
+    end
+
+    def event_selector(event_name)
+      ->(activity) { activity.type == "event" && activity.name == event_name }
     end
 
     def dialog_selector(invoke_name, key, expected)

@@ -1133,6 +1133,47 @@ class AppTest < Minitest::Test
     assert_equal "", last_response.body
   end
 
+  def test_meeting_start_event_routes_with_pascal_case_value
+    seen = nil
+    @teams.on_meeting_start { |ctx| seen = ctx.activity.value }
+    @teams.on_meeting_end { |_ctx| flunk "meeting_end must not fire for meetingStart" }
+
+    payload = teams_payload.merge(
+      "type" => "event",
+      "name" => "application/vnd.microsoft.meetingStart",
+      "value" => {
+        "Id" => "TWVldGluZ0lk",
+        "MeetingType" => "Scheduled",
+        "JoinUrl" => "https://teams.microsoft.com/l/meetup-join/x",
+        "Title" => "Standup",
+        "StartTime" => "2026-07-12T09:00:00Z"
+      }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "Standup", seen.title
+    assert_equal "Scheduled", seen.meeting_type
+    assert_equal "https://teams.microsoft.com/l/meetup-join/x", seen.join_url
+    assert_equal "2026-07-12T09:00:00Z", seen.start_time
+    assert_equal "TWVldGluZ0lk", seen.id
+  end
+
+  def test_meeting_end_event_routes
+    ended = []
+    @teams.on_meeting_end { |ctx| ended << ctx.activity.value.end_time }
+
+    payload = teams_payload.merge(
+      "type" => "event",
+      "name" => "application/vnd.microsoft.meetingEnd",
+      "value" => { "Id" => "TWVldGluZ0lk", "Title" => "Standup", "EndTime" => "2026-07-12T09:30:00Z" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["2026-07-12T09:30:00Z"], ended
+  end
+
   def test_warns_at_startup_without_credentials
     output = StringIO.new
     Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))
