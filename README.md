@@ -160,6 +160,18 @@ ctx.post Teams::Api::MessageActivity.new("Only for you").with_recipient(account,
 
 Targeted messages are rejected in 1:1 (personal) chats, where every message is already private.
 
+This repository is self-contained: the generated card classes and their golden fixtures are committed, so the gem and its test suite need nothing beyond Ruby. Regenerating the card classes requires a clone of Microsoft's Python SDK and [uv](https://docs.astral.sh/uv/); by default a checkout next to this repository is used, and `TEAMS_PY_PATH` points anywhere else:
+
+```sh
+bundle exec rake cards:generate
+# or with a custom checkout location:
+TEAMS_PY_PATH=/path/to/teams.py bundle exec rake cards:generate
+```
+
+The SDK-parity comparison workflow additionally uses sibling clones of `teams.ts` and `teams.net`, as described in the porting workspace's `AGENTS.md`.
+
+The full Adaptive Card schema (112 typed classes) is available under `Teams::Cards`, generated from the Python SDK's card models and golden-tested to serialize identically. Cards serialize with the same defaults the other SDKs emit. Raw card JSON via `add_card(hash)` remains available as an escape hatch. Two live-verified gotchas: some card fields are server-side enums (for example `CodeBlock` `language:` — Teams rejects the whole message for values outside the enum), and a card `Action.Submit` arrives as a message activity with `nil` text, an ephemeral id, and the inputs in `value` — answer it with `ctx.post`, since quote-replying to the invisible submit activity is rejected by Teams.
+
 For streamed responses, use `ctx.stream`:
 
 ```ruby
