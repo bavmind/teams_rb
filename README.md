@@ -127,11 +127,20 @@ ctx.post Teams::Api::MessageActivity.new("line 1<br>line 2", text_format: "xml")
 ctx.post Teams::Api::MessageActivity.new("extended markdown", text_format: "extendedmarkdown")
 ```
 
+Teams delivers activities with at-least-once semantics, so a message can occasionally reach your bot twice. Like the other Teams SDKs, `teams_rb` does not deduplicate inbound activities; if a handler performs side effects that must not repeat, deduplicate by `ctx.activity.id`.
+
 For a typing indicator, use `ctx.typing`. Teams renders it as an animated ellipsis in the chat. It accepts optional text for wire parity with the other Teams SDKs, but the Teams client does not display that text on a plain typing activity — for a visible status line, use `ctx.stream.update` instead:
 
 ```ruby
 ctx.typing                        # animated ellipsis
 ctx.stream.update("Thinking...")  # visible status line above the streamed response
+```
+
+Updating an activity replaces it entirely: Teams does not merge with the previous version, so metadata such as the AI-generated label, sensitivity label, citations, and mentions must be re-attached on every update or they disappear (verified live). For example:
+
+```ruby
+sent = ctx.post Teams::Api::MessageActivity.new("Thinking...").add_ai_generated
+ctx.update sent.id, Teams::Api::MessageActivity.new("Final answer.").add_ai_generated
 ```
 
 Every send returns a `Teams::Api::SentActivity` carrying the outbound activity merged with the server response, so the sent message id is always available:
@@ -174,7 +183,30 @@ teams.on_message do |ctx|
 end
 ```
 
-For citations, include the matching inline position marker in the text and add the citation to the message activity:
+For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("ping ").add_mention(ctx.activity.from.to_h)
+
+teams.on_message do |ctx|
+  if ctx.activity.recipient_mentioned?
+    ctx.reply "You said: #{ctx.activity.strip_mentions_text}"
+  end
+end
+```
+
+To mark a message with a content sensitivity label:
+
+```ruby
+ctx.post Teams::Api::MessageActivity.new("Q3 numbers...").add_sensitivity_label(
+  "Confidential",
+  description: "Internal use only"
+)
+```
+
+The label is informational: Teams renders a shield icon whose popup shows the name in bold, the description underneath, and an automatic "Sensitivity set by {bot}" attribution. Name and description are free text. The optional `pattern:` (a schema.org DefinedTerm hash) is carried on the wire but not rendered by the Teams client. No enforcement or Microsoft Purview integration is attached.
+
+For citations, include the matching inline position marker in the text and add the citation to the message activity. The optional citation `text:` must be a stringified Adaptive Card (it renders in a modal when the citation is clicked); passing plain prose makes Teams reject the whole message with `400 BadSyntax`:
 
 ```ruby
 message = Teams::Api::MessageActivity.new("The policy allows this [1].")
