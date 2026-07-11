@@ -29,6 +29,7 @@ module Teams
       @default_connection_name = default_connection_name
       @sign_in_handlers = []
       @error_handlers = []
+      @functions = {}
       @logger = logger
       @storage = storage
       @cloud = cloud
@@ -147,6 +148,34 @@ module Teams
 
     def emit_error(error, activity: nil)
       @error_handlers.each { |handler| handler.call(error, activity) }
+    end
+
+    # Registers a remote function callable from tabs via
+    # POST /api/functions/{name}. Requests carry an Entra token for the tab
+    # user, validated against the app's client id and tenant; the handler
+    # receives a FunctionContext and its return value becomes the JSON
+    # response body.
+    def on_function(name, &block)
+      raise ArgumentError, "handler block is required" unless block
+
+      @functions[name.to_s] = block
+      self
+    end
+
+    def process_function(name, data, env: {})
+      handler = @functions[name.to_s]
+      unless handler
+        return Response.new(status: 404, body: { "detail" => "function #{name.inspect} is not registered" })
+      end
+
+      context, error = build_function_context(name.to_s, data, env)
+      unless context
+        logger&.warn("Rejected function call #{name.inspect}: #{error}")
+        return Response.new(status: 401, body: { "detail" => error })
+      end
+
+      result = handler.call(context)
+      Response.new(status: 200, body: result.respond_to?(:to_h) ? result.to_h : result)
     end
 
     # Meeting start/end events (Teams posts them to bots installed in the
@@ -292,6 +321,55 @@ module Teams
       outbound = normalize_activity(activity_or_text)
       body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
       body.merge("id" => activity_id)
+    end
+
+    # Validates a remote function request like the TypeScript/Python SDKs:
+    # required client headers, an Entra bearer token verified against the
+    # app's client id/tenant, and the oid/tid/name claims. Returns
+    # [context, nil] or [nil, error_message].
+    def build_function_context(name, data, env)
+      auth_header = env["HTTP_AUTHORIZATION"].to_s
+      app_session_id = env["HTTP_X_TEAMS_APP_SESSION_ID"].to_s
+      page_id = env["HTTP_X_TEAMS_PAGE_ID"].to_s
+
+      return [nil, "missing X-Teams-App-Session-Id header"] if app_session_id.empty?
+      return [nil, "missing X-Teams-Page-Id header"] if page_id.empty?
+      return [nil, "missing Authorization bearer token"] if auth_header.empty?
+      return [nil, "Token validator not configured"] unless @jwt_validator
+
+      begin
+        payload = @jwt_validator.validate!(auth_header)
+      rescue AuthenticationError => error
+        return [nil, error.message]
+      end
+
+      %w[oid tid name].each do |claim|
+        return [nil, "missing #{claim} claim in token payload"] if payload[claim].to_s.empty?
+      end
+
+      context = FunctionContext.new(
+        app: self,
+        function_name: name,
+        data:,
+        app_session_id:,
+        page_id:,
+        auth_token: auth_header.split(" ", 2).last,
+        tenant_id: payload["tid"],
+        user_id: payload["oid"],
+        user_name: payload["name"],
+        app_id: payload["appId"],
+        channel_id: presence(env["HTTP_X_TEAMS_CHANNEL_ID"]),
+        chat_id: presence(env["HTTP_X_TEAMS_CHAT_ID"]),
+        meeting_id: presence(env["HTTP_X_TEAMS_MEETING_ID"]),
+        message_id: presence(env["HTTP_X_TEAMS_MESSAGE_ID"]),
+        sub_page_id: presence(env["HTTP_X_TEAMS_SUB_PAGE_ID"]),
+        team_id: presence(env["HTTP_X_TEAMS_TEAM_ID"])
+      )
+      [context, nil]
+    end
+
+    def presence(value)
+      value.to_s.empty? ? nil : value
     end
 
     # Default OAuth handlers, mirroring the TypeScript/Python OauthHandlers:

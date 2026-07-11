@@ -329,6 +329,18 @@ teams.graph.post("/users/#{user_id}/sendMail", json: { message: { subject: "Hi" 
 
 `get`/`post`/`patch`/`put`/`delete` take a path relative to `/v1.0`, return parsed hashes, and raise `Teams::GraphError` (with `status`, the Graph error `code`, and the full `body`) on failure. Sovereign clouds route automatically from the configured cloud's graph scope.
 
+Remote functions let a tab (or any Teams-hosted web page) call your bot backend as the signed-in user. The page acquires an Entra token through the Teams JS SDK and POSTs to `/api/functions/{name}` with the token plus the Teams client-context headers; the SDK validates the token against your app registration (client id audience forms, tenant issuer) and requires the `oid`/`tid`/`name` claims:
+
+```ruby
+teams.on_function("create-ticket") do |ctx|
+  ticket = Ticket.create!(title: ctx.data["title"], creator_oid: ctx.user_id)
+  ctx.post "#{ctx.user_name} created ticket #{ticket.id} from the tab"
+  { "id" => ticket.id }
+end
+```
+
+`ctx.data` is the parsed JSON body; identity (`user_id`, `tenant_id`, `user_name`) comes from the validated token; the client context (`chat_id`, `channel_id`, `meeting_id`, `team_id`, `page_id`, `app_session_id`, …) comes from the `X-Teams-*` headers. `ctx.conversation_id` resolves the chat/channel after validating the user's membership — or creates the 1:1 conversation in personal scope — and `ctx.post` sends into it proactively. The handler's return value becomes the JSON response body; invalid requests get `401` with a `detail` message.
+
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
 ```ruby

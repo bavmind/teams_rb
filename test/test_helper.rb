@@ -132,6 +132,25 @@ class FakeApi
     { "id" => activity_id }
   end
 
+  attr_accessor :member_missing
+
+  def get_member_by_id(conversation_id, member_id, service_url: nil)
+    if @member_missing
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::Account.new("id" => member_id, "name" => "Member")
+  end
+
+  def create(members: nil, tenant_id: nil, activity: nil, channel_data: nil, service_url: nil)
+    created_conversations << { members:, tenant_id: }
+    Teams::Api::ConversationResource.new("id" => "created-conversation-1")
+  end
+
+  def created_conversations
+    @created_conversations ||= []
+  end
+
   private
 
   def stream_id_for(payload)

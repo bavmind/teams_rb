@@ -9,8 +9,17 @@ module Teams
       @app = app
     end
 
+    FUNCTION_PATH = %r{\A/api/functions/([^/]+)\z}
+
     def call(env)
       request = Rack::Request.new(env)
+
+      if request.post? && (function = FUNCTION_PATH.match(request.path_info))
+        body = request.body.read
+        payload = body.empty? ? {} : JSON.parse(body)
+        return rack_response(@app.process_function(function[1], payload, env:))
+      end
+
       return not_found unless request.post? && request.path_info == @app.messaging_endpoint
 
       body = request.body.read
