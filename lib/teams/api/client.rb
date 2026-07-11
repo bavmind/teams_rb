@@ -5,6 +5,8 @@ require "uri"
 module Teams
   module Api
     class Client
+      TARGETED_PARAMS = { "isTargetedActivity" => "true" }.freeze
+
       attr_reader :service_url, :http
 
       def initialize(service_url:, http:, logger: nil)
@@ -21,10 +23,12 @@ module Teams
       end
 
       def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)
+        body = activity_to_h(activity)
+        body = body.merge("replyToId" => activity_id) if body.is_a?(Hash)
         path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
         url = absolute(path, service_url:)
         @logger&.debug("Teams API POST #{url}")
-        http.post(url, json: activity_to_h(activity))
+        http.post(url, json: body)
       end
 
       def update_activity(conversation_id, activity_id, activity, service_url: nil)
@@ -32,6 +36,34 @@ module Teams
         url = absolute(path, service_url:)
         @logger&.debug("Teams API PUT #{url}")
         http.put(url, json: activity_to_h(activity))
+      end
+
+      def delete_activity(conversation_id, activity_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API DELETE #{url}")
+        http.delete(url)
+      end
+
+      def send_targeted_to_conversation(conversation_id, activity, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API POST #{url} (targeted)")
+        http.post(url, json: activity_to_h(activity), params: TARGETED_PARAMS)
+      end
+
+      def update_targeted_activity(conversation_id, activity_id, activity, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API PUT #{url} (targeted)")
+        http.put(url, json: activity_to_h(activity), params: TARGETED_PARAMS)
+      end
+
+      def delete_targeted_activity(conversation_id, activity_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API DELETE #{url} (targeted)")
+        http.delete(url, params: TARGETED_PARAMS)
       end
 
       def reactions

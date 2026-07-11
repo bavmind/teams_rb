@@ -7,7 +7,7 @@ module Teams
       FEEDBACK_MODES = %w[default custom].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
 
-      attr_reader :id, :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data
+      attr_reader :id, :text, :attachments, :text_format, :summary, :input_hint, :entities, :channel_data, :recipient
 
       def initialize(text = nil, id: nil, attachments: [], text_format: nil, summary: nil, input_hint: nil)
         @id = id
@@ -18,6 +18,7 @@ module Teams
         @input_hint = input_hint
         @entities = []
         @channel_data = {}
+        @recipient = nil
       end
 
       def add_text(value)
@@ -61,12 +62,64 @@ module Teams
         self
       end
 
+      def with_recipient(account, is_targeted: nil)
+        body = account.respond_to?(:to_h) ? account.to_h : account
+        body = body.dup
+        body["isTargeted"] = is_targeted unless is_targeted.nil?
+        @recipient = body
+        self
+      end
+
+      # Adds a targetedMessageInfo entity for prompt preview, once per message.
+      # Any quotedReply entities and the matching quote placeholder are removed
+      # to avoid collision with the prompt preview.
+      def add_targeted_message_info(message_id)
+        @entities.reject! { |entity| quoted_reply_entity?(entity) }
+        @text = text.gsub(%(<quoted messageId="#{message_id}"/>), "").strip if text
+
+        unless @entities.any? { |entity| entity_type(entity) == "targetedMessageInfo" }
+          @entities << { "type" => "targetedMessageInfo", "messageId" => message_id }
+        end
+
+        self
+      end
+
       def add_ai_generated
         entity = ensure_single_root_level_message_entity
         additional_types = Array(entity["additionalType"])
         return self if additional_types.include?("AIGeneratedContent")
 
         entity["additionalType"] = additional_types + ["AIGeneratedContent"]
+        self
+      end
+
+      def add_mention(account, text: nil, add_text: true)
+        account_hash = account.respond_to?(:to_h) ? account.to_h : account
+        mention_text = text || account_hash["name"]
+
+        self.add_text("<at>#{mention_text}</at>") if add_text
+
+        @entities << {
+          "type" => "mention",
+          "mentioned" => account_hash,
+          "text" => "<at>#{mention_text}</at>"
+        }
+        self
+      end
+
+      # Adds a content sensitivity label. The label is carried as usageInfo on
+      # the root schema.org/Message entity, the wire shape TypeScript, Python,
+      # and the Teams documentation use.
+      def add_sensitivity_label(name, description: nil, pattern: nil)
+        usage_info = {
+          "type" => AI_MESSAGE_ENTITY_TYPE,
+          "@type" => "CreativeWork",
+          "name" => name
+        }
+        usage_info["description"] = description if description
+        usage_info["pattern"] = pattern if pattern
+
+        ensure_single_root_level_message_entity["usageInfo"] = usage_info
         self
       end
 
@@ -97,6 +150,7 @@ module Teams
         body["attachments"] = attachments unless attachments.empty?
         body["entities"] = @entities.map { |entity| entity.respond_to?(:to_h) ? entity.to_h : entity } unless @entities.empty?
         body["channelData"] = channel_data unless channel_data.empty?
+        body["recipient"] = recipient if recipient
         body
       end
 

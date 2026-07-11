@@ -9,7 +9,6 @@ module Teams
     :open_id_metadata_url,
     :token_issuer,
     :graph_scope,
-    :allowed_service_urls,
     keyword_init: true
   )
 
@@ -20,12 +19,7 @@ module Teams
     token_service_url: "https://token.botframework.com",
     open_id_metadata_url: "https://login.botframework.com/v1/.well-known/openidconfiguration",
     token_issuer: "https://api.botframework.com",
-    graph_scope: "https://graph.microsoft.com/.default",
-    allowed_service_urls: [
-      "smba.trafficmanager.net",
-      "smba.onyx.prod.teams.trafficmanager.net",
-      "smba.infra.gcc.teams.microsoft.com"
-    ]
+    graph_scope: "https://graph.microsoft.com/.default"
   )
 
   module CloudEnvironments

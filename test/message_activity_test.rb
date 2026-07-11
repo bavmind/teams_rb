@@ -284,6 +284,95 @@ class MessageActivityTest < Minitest::Test
 
     assert_equal ["quotedReply", "https://schema.org/Message"], activity.to_h["entities"].map { |entity| entity["type"] }
   end
+
+  def test_with_recipient_serializes_recipient
+    activity = Teams::Api::MessageActivity.new("hello")
+      .with_recipient({ "id" => "user-1", "name" => "User One" }, is_targeted: true)
+
+    assert_equal(
+      { "id" => "user-1", "name" => "User One", "isTargeted" => true },
+      activity.to_h["recipient"]
+    )
+  end
+
+  def test_with_recipient_leaves_targeting_unchanged_by_default
+    activity = Teams::Api::MessageActivity.new("hello")
+      .with_recipient({ "id" => "user-1", "isTargeted" => true })
+
+    assert_equal true, activity.to_h.dig("recipient", "isTargeted")
+
+    activity = Teams::Api::MessageActivity.new("hello").with_recipient({ "id" => "user-1" })
+
+    refute activity.to_h["recipient"].key?("isTargeted")
+  end
+
+  def test_add_mention_appends_tag_and_entity
+    activity = Teams::Api::MessageActivity.new("Hello ")
+      .add_mention({ "id" => "user-1", "name" => "User One" })
+
+    body = activity.to_h
+
+    assert_equal "Hello <at>User One</at>", body["text"]
+    assert_equal(
+      [{ "type" => "mention", "mentioned" => { "id" => "user-1", "name" => "User One" }, "text" => "<at>User One</at>" }],
+      body["entities"]
+    )
+  end
+
+  def test_add_mention_with_custom_text_and_without_appending
+    activity = Teams::Api::MessageActivity.new("Hello")
+      .add_mention({ "id" => "user-1", "name" => "User One" }, text: "buddy", add_text: false)
+
+    body = activity.to_h
+
+    assert_equal "Hello", body["text"]
+    assert_equal "<at>buddy</at>", body["entities"].first["text"]
+  end
+
+  def test_add_sensitivity_label_sets_usage_info_on_root_message_entity
+    activity = Teams::Api::MessageActivity.new("classified")
+      .add_ai_generated
+      .add_sensitivity_label("Confidential", description: "Internal only")
+
+    entities = activity.to_h["entities"]
+
+    assert_equal 1, entities.length
+    entity = entities.first
+    assert_equal "https://schema.org/Message", entity["type"]
+    assert_equal ["AIGeneratedContent"], entity["additionalType"]
+    assert_equal(
+      {
+        "type" => "https://schema.org/Message",
+        "@type" => "CreativeWork",
+        "name" => "Confidential",
+        "description" => "Internal only"
+      },
+      entity["usageInfo"]
+    )
+  end
+
+  def test_add_sensitivity_label_supports_pattern
+    activity = Teams::Api::MessageActivity.new.add_sensitivity_label(
+      "Sensitive",
+      pattern: { "@type" => "DefinedTerm", "inDefinedTermSet" => "set", "name" => "n", "termCode" => "t" }
+    )
+
+    usage_info = activity.to_h["entities"].first["usageInfo"]
+
+    assert_equal "DefinedTerm", usage_info.dig("pattern", "@type")
+  end
+
+  def test_add_targeted_message_info_strips_quote_artifacts_and_dedupes
+    activity = Teams::Api::MessageActivity.new("Secret")
+      .prepend_quote("msg-1")
+      .add_targeted_message_info("msg-1")
+      .add_targeted_message_info("msg-1")
+
+    body = activity.to_h
+
+    assert_equal "Secret", body["text"]
+    assert_equal [{ "type" => "targetedMessageInfo", "messageId" => "msg-1" }], body["entities"]
+  end
 end
 
 class QuotedReplyEntityTest < Minitest::Test

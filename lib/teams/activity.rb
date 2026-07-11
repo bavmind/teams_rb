@@ -75,6 +75,39 @@ module Teams
         .map { |entity| Api::QuotedReplyEntity.new(entity) }
     end
 
+    def get_mentions
+      entities.select { |entity| entity.is_a?(Hash) && entity["type"] == "mention" }
+    end
+
+    def get_account_mention(account_id)
+      get_mentions.find { |mention| mention.dig("mentioned", "id") == account_id }
+    end
+
+    def recipient_mentioned?
+      !get_account_mention(recipient.id).nil?
+    end
+
+    # Returns the text with "<at>...</at>" mention tokens removed, without
+    # mutating the raw activity. With tag_only, only the tags are removed and
+    # the mention names are kept.
+    def strip_mentions_text(account_id: nil, tag_only: false)
+      return nil unless text
+
+      get_mentions.reduce(text) do |result, mention|
+        next result if account_id && mention.dig("mentioned", "id") != account_id
+
+        mention_text = mention["text"].to_s
+        if !mention_text.empty?
+          without_tags = mention_text.gsub("<at>", "").gsub("</at>", "")
+          result.sub(mention_text, tag_only ? without_tags : "")
+        elsif (name = mention.dig("mentioned", "name"))
+          result.sub("<at>#{name}</at>", tag_only ? name : "")
+        else
+          result
+        end
+      end.strip
+    end
+
     def to_h
       raw.dup
     end

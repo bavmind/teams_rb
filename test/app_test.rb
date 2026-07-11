@@ -29,16 +29,16 @@ class AppTest < Minitest::Test
 
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
-    assert_equal "activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
     assert_equal(
       [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
       @api.sent.first[1]["entities"]
     )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
-    assert_equal({ "id" => "user-1", "name" => "User One", "aadObjectId" => "aad-1" }, @api.sent.first[1]["recipient"])
+    refute @api.sent.first[1].key?("recipient")
+    refute @api.sent.first[1].key?("channelId")
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
-    assert_equal "msteams", @api.sent.first[1]["channelId"]
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
   end
 
@@ -115,11 +115,25 @@ class AppTest < Minitest::Test
     assert_equal 400, last_response.status
   end
 
-  def test_service_url_validation_rejects_untrusted_host
-    post "/api/messages", JSON.generate(teams_payload(service_url: "https://evil.example.com/teams")), { "CONTENT_TYPE" => "application/json" }
+  def test_sends_return_sent_activity_with_id
+    proactive = @teams.post("conversation-2", "hello")
 
-    assert_equal 400, last_response.status
-    assert_includes last_response.body, "serviceUrl host is not allowed"
+    assert_instance_of Teams::Api::SentActivity, proactive
+    assert_equal "sent-1", proactive.id
+    assert_equal "hello", proactive.text
+    assert_equal "conversation-2", proactive.conversation_id
+
+    results = []
+    @teams.on_message do |ctx|
+      results << ctx.post("from handler")
+      results << ctx.reply("reply from handler")
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert(results.all? { |result| result.is_a?(Teams::Api::SentActivity) })
+    assert(results.all?(&:id))
   end
 
   def test_proactive_send
@@ -128,7 +142,7 @@ class AppTest < Minitest::Test
     assert_equal "conversation-2", @api.sent.first[0]
     assert_equal "hello proactively", @api.sent.first[1]["text"]
     assert_equal({ "id" => "conversation-2" }, @api.sent.first[1]["conversation"])
-    assert_equal "msteams", @api.sent.first[1]["channelId"]
+    refute @api.sent.first[1].key?("channelId")
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
   end
 
@@ -189,7 +203,7 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal "activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal "Reply card", @api.sent.first[1]["attachments"].first["content"]["body"].first["text"]
   end
 
@@ -201,7 +215,7 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal "quoted-activity-1", @api.sent.first[1]["replyToId"]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal %(<quoted messageId="quoted-activity-1"/> quoted reply), @api.sent.first[1]["text"]
     assert_equal(
       [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "quoted-activity-1" } }],
@@ -295,12 +309,27 @@ class AppTest < Minitest::Test
     assert_equal ["messageUpdate"], events
   end
 
-  def test_proactive_reply_sets_reply_to_id
-    @teams.reply("conversation-2", "activity-2", "thread reply")
+  def test_proactive_reply_threads_conversation_id
+    @teams.reply("conversation-2", "1728640934763", "thread reply")
 
-    assert_equal "conversation-2", @api.sent.first[0]
-    assert_equal "activity-2", @api.sent.first[1]["replyToId"]
+    assert_equal "conversation-2;messageid=1728640934763", @api.sent.first[0]
+    refute @api.sent.first[1].key?("replyToId")
     assert_equal "thread reply", @api.sent.first[1]["text"]
+  end
+
+  def test_proactive_reply_requires_numeric_message_id
+    error = assert_raises(ArgumentError) do
+      @teams.reply("conversation-2", "activity-2", "thread reply")
+    end
+
+    assert_equal %(invalid message_id "activity-2": must be a non-zero numeric value), error.message
+  end
+
+  def test_to_threaded_conversation_id_strips_existing_thread_suffix
+    assert_equal(
+      "19:abc@thread.skype;messageid=456",
+      Teams.to_threaded_conversation_id("19:abc@thread.skype;messageid=123", "456")
+    )
   end
 
   def test_proactive_update_replaces_existing_activity
@@ -310,7 +339,7 @@ class AppTest < Minitest::Test
     assert_equal "activity-2", @api.updates.first[1]
     assert_equal "Free phones gone now.", @api.updates.first[2]["text"]
     assert_equal({ "id" => "conversation-2" }, @api.updates.first[2]["conversation"])
-    assert_equal "msteams", @api.updates.first[2]["channelId"]
+    refute @api.updates.first[2].key?("channelId")
     assert_equal "https://smba.trafficmanager.net/teams", @api.updates.first[3]
   end
 
@@ -391,12 +420,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 2, @api.updates.size
+    assert_equal 3, @api.sent.size
+    assert_equal 0, @api.updates.size
 
     first = @api.sent[0][1]
-    second = @api.updates[0][2]
-    final = @api.updates[1][2]
+    second = @api.sent[1][1]
+    final = @api.sent[2][1]
 
     assert_equal "typing", first["type"]
     assert_equal "Hello", first["text"]
@@ -427,12 +456,12 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 2, @api.updates.size
+    assert_equal 3, @api.sent.size
+    assert_equal 0, @api.updates.size
 
     informative = @api.sent[0][1]
-    chunk = @api.updates[0][2]
-    final = @api.updates[1][2]
+    chunk = @api.sent[1][1]
+    final = @api.sent[2][1]
 
     assert_equal "typing", informative["type"]
     assert_equal "Thinking...", informative["text"]
@@ -441,6 +470,7 @@ class AppTest < Minitest::Test
 
     assert_equal "typing", chunk["type"]
     assert_equal "Hello", chunk["text"]
+    assert_equal "streaming", chunk.dig("channelData", "streamType")
     assert_equal 2, chunk.dig("channelData", "streamSequence")
 
     assert_equal "message", final["type"]
@@ -469,10 +499,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 1, @api.updates.size
+    assert_equal 2, @api.sent.size
+    assert_equal 0, @api.updates.size
 
-    final = @api.updates.last[2]
+    final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
     assert_equal "Hello", final["text"]
@@ -531,10 +561,10 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-    assert_equal 1, @api.updates.size
+    assert_equal 2, @api.sent.size
+    assert_equal 0, @api.updates.size
 
-    final = @api.updates.last[2]
+    final = @api.sent.last[1]
 
     assert_equal "message", final["type"]
     refute final.key?("text")
@@ -552,8 +582,333 @@ class AppTest < Minitest::Test
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
+    assert_equal 0, @api.updates.size
     assert_equal "discard this", @api.sent[0][1]["text"]
-    assert_equal "keep this", @api.updates[0][2]["text"]
-    assert_equal "keep this", @api.updates[1][2]["text"]
+    assert_equal "keep this", @api.sent[1][1]["text"]
+    assert_equal "keep this", @api.sent[2][1]["text"]
+  end
+
+  def test_stream_maps_403_error_messages_to_typed_errors
+    {
+      "Content stream was canceled by user." => Teams::StreamCancelledError,
+      "Content stream is not allowed" => Teams::StreamNotAllowedError,
+      "Content stream is not allowed on an already completed streamed message" => Teams::TerminalStreamError,
+      "Message size too large" => Teams::TerminalStreamError,
+      "Request streamed content should contain the previously streamed content" => Teams::TerminalStreamError
+    }.each do |message, expected|
+      api = FakeApi.new
+      api.send_filter = ->(_payload) { raise stream_http_error(message) }
+      stream = build_stream(api)
+
+      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.emit "hi" }
+      assert_instance_of expected, error, "wrong error class for #{message.inspect}"
+      assert_equal message, error.message
+    end
+  end
+
+  def test_stream_403_with_empty_body_maps_to_terminal_error
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error }
+    stream = build_stream(api)
+
+    error = assert_raises(Teams::TerminalStreamError) { stream.emit "hi" }
+    assert_instance_of Teams::TerminalStreamError, error
+  end
+
+  def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream is not allowed") }
+    stream = build_stream(api)
+
+    assert_raises(Teams::StreamNotAllowedError) { stream.emit "hi" }
+    refute stream.canceled
+    refute stream.timed_out
+  end
+
+  def test_stream_cancel_is_sticky_and_close_returns_nil
+    api = FakeApi.new
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
+    stream = build_stream(api)
+
+    assert_raises(Teams::StreamCancelledError) { stream.emit "hi" }
+    assert stream.canceled
+    assert_nil stream.close
+
+    api.send_filter = nil
+    error = assert_raises(Teams::StreamCancelledError) { stream.emit "again" }
+    assert_equal "Stream has been cancelled.", error.message
+  end
+
+  def test_stream_chunk_timeout_is_swallowed_and_close_updates_in_place
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "Hello"
+    api.send_filter = ->(_payload) { raise stream_http_error("Content stream finished due to exceeded streaming time.") }
+    stream.emit ", world"
+
+    assert stream.timed_out
+    api.send_filter = nil
+
+    result = stream.close
+
+    assert_instance_of Teams::Api::SentActivity, result
+    assert_equal "sent-1", result.id
+    assert_equal 1, api.sent.size
+    assert_equal 1, api.updates.size
+
+    final = api.updates.last[2]
+    assert_equal "message", final["type"]
+    assert_equal "Hello, world", final["text"]
+    assert_equal "sent-1", final["id"]
+    refute final.key?("channelData")
+    refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
+  end
+
+  def test_stream_final_send_timeout_falls_back_to_in_place_update
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "Hello"
+    api.send_filter = lambda do |payload|
+      raise stream_http_error("Content stream finished due to exceeded streaming time.") if payload["type"] == "message"
+    end
+
+    result = stream.close
+
+    assert stream.timed_out
+    assert_equal "sent-1", result.id
+    assert_equal 1, api.updates.size
+
+    final = api.updates.last[2]
+    assert_equal "message", final["type"]
+    assert_equal "Hello", final["text"]
+    assert_equal "sent-1", final["id"]
+    refute final.key?("channelData")
+    refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
+  end
+
+  def test_stream_reusable_after_close_starts_new_streamed_message
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    stream.emit "one"
+    first = stream.close
+
+    assert stream.closed
+    assert_same first, stream.close
+
+    stream.emit "two"
+
+    refute stream.closed
+    second = stream.close
+
+    assert_equal "sent-1", first.id
+    assert_equal "sent-3", second.id
+    assert_equal 4, api.sent.size
+    assert_equal 0, api.updates.size
+
+    second_chunk = api.sent[2][1]
+    refute second_chunk.key?("id")
+    refute second_chunk.dig("channelData", "streamId")
+    assert_equal 1, second_chunk.dig("channelData", "streamSequence")
+    assert_equal "one", api.sent[1][1]["text"]
+    assert_equal "two", second_chunk["text"]
+
+    second_final = api.sent[3][1]
+    assert_equal "sent-3", second_final["entities"].first["streamId"]
+  end
+
+  def test_post_defaults_to_targeted_when_inbound_message_is_targeted
+    @teams.on_message { |ctx| ctx.post "Secret message" }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Secret message", outbound["text"]
+    assert_equal "user-1", outbound.dig("recipient", "id")
+    assert_equal "User One", outbound.dig("recipient", "name")
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_reply_defaults_to_targeted_without_quoting
+    @teams.on_message { |ctx| ctx.reply "Private reply" }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Private reply", outbound["text"]
+    refute outbound.key?("replyToId")
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    refute(Array(outbound["entities"]).any? { |entity| entity["type"] == "quotedReply" })
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_explicit_recipient_opts_out_of_targeted_defaulting
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Public message").with_recipient({ "id" => "user-1", "name" => "User One" })
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.targeted_sent
+    assert_equal 1, @api.sent.size
+
+    outbound = @api.sent.first[1]
+    assert_equal "user-1", outbound.dig("recipient", "id")
+    refute outbound.dig("recipient", "isTargeted")
+    refute outbound.key?("entities")
+  end
+
+  def test_update_does_not_default_to_targeted
+    @teams.on_message { |ctx| ctx.update "assistant-activity-1", "Edited." }
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.targeted_sent
+    assert_empty @api.targeted_updates
+    assert_equal 1, @api.updates.size
+  end
+
+  def test_targeted_outbound_strips_quoted_reply_metadata
+    @teams.on_message do |ctx|
+      ctx.post(
+        "type" => "message",
+        "text" => %(<quoted messageId="activity-1"/> Secret),
+        "entities" => [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }]
+      )
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    outbound = @api.targeted_sent.first[1]
+    assert_equal "Secret", outbound["text"]
+    refute(outbound["entities"].any? { |entity| entity["type"] == "quotedReply" })
+    assert_includes outbound["entities"], { "type" => "targetedMessageInfo", "messageId" => "activity-1" }
+  end
+
+  def test_explicit_targeted_send_from_public_inbound_has_no_targeted_message_info
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Targeted send").with_recipient(
+        { "id" => "user-1", "name" => "User One" }, is_targeted: true
+      )
+    end
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("conversationType" => "groupChat")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    refute(Array(outbound["entities"]).any? { |entity| entity["type"] == "targetedMessageInfo" })
+  end
+
+  def test_targeted_update_routes_to_targeted_update
+    @teams.on_message do |ctx|
+      ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
+        { "id" => "user-1" }, is_targeted: true
+      )
+    end
+
+    post "/api/messages", JSON.generate(targeted_teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.updates
+    assert_equal 1, @api.targeted_updates.size
+    assert_equal "existing-1", @api.targeted_updates.first[1]
+  end
+
+  def test_targeted_send_in_personal_chat_raises
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("conversationType" => "personal")
+    reference = Teams::Api::ConversationReference.from_activity(Teams::Activity.new(payload))
+
+    error = assert_raises(ArgumentError) do
+      @teams.send_activity(
+        reference,
+        Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
+      )
+    end
+
+    assert_equal "Targeted messages are not supported in 1:1 (personal) chats.", error.message
+    assert_empty @api.targeted_sent
+  end
+
+  def test_stream_chunk_and_close_events
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    chunks = []
+    closes = []
+    stream.on_chunk { |sent| chunks << sent }
+    stream.on_close { |sent| closes << sent }
+
+    stream.update "Thinking..."
+    stream.emit "Hello"
+    first = stream.close
+
+    assert_equal 2, chunks.length
+    assert(chunks.all? { |sent| sent.is_a?(Teams::Api::SentActivity) })
+    assert_equal "sent-1", chunks.first.id
+    assert_equal [first], closes
+
+    # Idempotent close does not re-fire the close event.
+    stream.close
+    assert_equal 1, closes.length
+
+    # Handlers persist across stream reuse.
+    stream.emit "second cycle"
+    second = stream.close
+
+    assert_equal 3, chunks.length
+    assert_equal [first, second], closes
+  end
+
+  def test_typing_accepts_optional_text
+    @teams.on_message do |ctx|
+      ctx.typing
+      ctx.typing "Thinking..."
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+
+    plain = @api.sent[0][1]
+    with_text = @api.sent[1][1]
+
+    assert_equal "typing", plain["type"]
+    refute plain.key?("text")
+    assert_equal "typing", with_text["type"]
+    assert_equal "Thinking...", with_text["text"]
+  end
+
+  private
+
+  def build_stream(api)
+    teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
+    activity = Teams::Activity.new(teams_payload)
+    conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
+    Teams::HttpStream.new(app: teams, conversation_reference:)
+  end
+
+  def stream_http_error(message = nil)
+    body = message ? { "error" => { "message" => message } } : ""
+    Teams::HttpError.new("HTTP request failed with status 403", status: 403, headers: {}, body:)
   end
 end

@@ -81,4 +81,36 @@ class ActivityModelsTest < Minitest::Test
       account.to_h
     )
   end
+
+  def test_activity_mention_readers_and_strip
+    activity = Teams::Activity.new(
+      "type" => "message",
+      "text" => "<at>Ruby Bot</at> hello there",
+      "recipient" => { "id" => "bot-1", "name" => "Ruby Bot" },
+      "entities" => [
+        { "type" => "mention", "mentioned" => { "id" => "bot-1", "name" => "Ruby Bot" }, "text" => "<at>Ruby Bot</at>" },
+        { "type" => "mention", "mentioned" => { "id" => "user-2", "name" => "User Two" }, "text" => "<at>User Two</at>" }
+      ]
+    )
+
+    assert_equal 2, activity.get_mentions.length
+    assert_equal "bot-1", activity.get_account_mention("bot-1").dig("mentioned", "id")
+    assert_nil activity.get_account_mention("nobody")
+    assert activity.recipient_mentioned?
+
+    assert_equal "hello there", activity.strip_mentions_text
+    assert_equal "Ruby Bot hello there", activity.strip_mentions_text(tag_only: true)
+    assert_equal "hello there", activity.strip_mentions_text(account_id: "bot-1")
+    assert_equal "<at>Ruby Bot</at> hello there", activity.raw["text"]
+  end
+
+  def test_strip_mentions_text_falls_back_to_mentioned_name
+    activity = Teams::Activity.new(
+      "type" => "message",
+      "text" => "<at>Ruby Bot</at> ping",
+      "entities" => [{ "type" => "mention", "mentioned" => { "id" => "bot-1", "name" => "Ruby Bot" } }]
+    )
+
+    assert_equal "ping", activity.strip_mentions_text
+  end
 end

@@ -19,15 +19,12 @@ module Teams
       api: nil,
       token_manager: nil,
       skip_auth: false,
-      additional_allowed_domains: [],
-      skip_service_url_validation: false,
       messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT
     )
       @logger = logger
       @storage = storage
       @cloud = cloud
       @skip_auth = skip_auth
-      @skip_service_url_validation = skip_service_url_validation
       @messaging_endpoint = normalize_messaging_endpoint(messaging_endpoint)
       @router = Router.new
 
@@ -42,7 +39,6 @@ module Teams
         tenant_id: @token_manager.credentials&.tenant_id,
         cloud:
       ) if @token_manager.client_id
-      @service_url_validator = Auth::ServiceUrlValidator.new(cloud:, additional_allowed_domains:)
     end
 
     def to_rack
@@ -92,7 +88,6 @@ module Teams
     def process_inbound(payload, env: {})
       activity = Activity.new(payload)
       validate_inbound!(env, activity)
-      validate_service_url!(activity)
 
       conversation_reference = Api::ConversationReference.from_activity(activity)
       context = ActivityContext.new(
@@ -121,72 +116,65 @@ module Teams
       )
     end
 
+    # Proactive threaded replies use a ";messageid=" conversation ID like the
+    # TypeScript and Python SDKs; the service decides whether threading applies.
     def reply(conversation_id, activity_id_or_activity, activity_or_text = nil, service_url: nil)
       assert_string!(conversation_id, "conversation_id")
 
       if activity_or_text
         assert_string!(activity_id_or_activity, "activity_id")
 
-        reply_to_activity(
-          proactive_reference(conversation_id, service_url:),
-          activity_id_or_activity,
-          activity_or_text
+        post(
+          Teams.to_threaded_conversation_id(conversation_id, activity_id_or_activity),
+          activity_or_text,
+          service_url:
         )
       else
         post(conversation_id, activity_id_or_activity, service_url:)
       end
     end
 
+    # Sugar over post: the SDKs update by sending an activity that already
+    # carries an id, and post does exactly that. See AGENTS.md.
     def update(conversation_id, activity_id, activity_or_text, service_url: nil)
       assert_string!(conversation_id, "conversation_id")
       assert_string!(activity_id, "activity_id")
 
-      update_activity(
-        proactive_reference(conversation_id, service_url:),
-        activity_id,
-        activity_or_text
-      )
+      post(conversation_id, activity_with_id(activity_id, activity_or_text), service_url:)
     end
 
     def send_activity(conversation_reference, activity_or_text)
       activity = activity_for_reference(conversation_reference, activity_or_text)
+      targeted = targeted_activity?(activity)
+
+      if targeted && conversation_reference.conversation.conversation_type == "personal"
+        raise ArgumentError, "Targeted messages are not supported in 1:1 (personal) chats."
+      end
+
       id = activity_id(activity)
+      conversation_id = conversation_reference.conversation_id
+      service_url = conversation_reference.service_url
 
-      return api.update_activity(
-        conversation_reference.conversation_id,
-        id,
-        activity,
-        service_url: conversation_reference.service_url
-      ) if id
+      response = if id && targeted
+        api.update_targeted_activity(conversation_id, id, activity, service_url:)
+      elsif id
+        api.update_activity(conversation_id, id, activity, service_url:)
+      elsif targeted
+        api.send_targeted_to_conversation(conversation_id, activity, service_url:)
+      else
+        api.send_to_conversation(conversation_id, activity, service_url:)
+      end
 
-      api.send_to_conversation(
-        conversation_reference.conversation_id,
-        activity,
-        service_url: conversation_reference.service_url
-      )
-    end
-
-    def reply_to_activity(conversation_reference, activity_id, activity_or_text)
-      activity = activity_for_reference(conversation_reference, activity_or_text)
-      activity["replyToId"] ||= activity_id if activity.is_a?(Hash) && activity_id
-
-      api.send_to_conversation(
-        conversation_reference.conversation_id,
-        activity,
-        service_url: conversation_reference.service_url
-      )
-    end
-
-    def update_activity(conversation_reference, activity_id, activity_or_text)
-      api.update_activity(
-        conversation_reference.conversation_id,
-        activity_id,
-        activity_for_reference(conversation_reference, activity_or_text),
-        service_url: conversation_reference.service_url
-      )
+      Api::SentActivity.merge(activity, response)
     end
 
     private
+
+    def activity_with_id(activity_id, activity_or_text)
+      outbound = normalize_activity(activity_or_text)
+      body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
+      body.merge("id" => activity_id)
+    end
 
     def validate_inbound!(env, activity)
       return if @skip_auth
@@ -194,12 +182,6 @@ module Teams
       raise AuthenticationError, "CLIENT_ID is required for inbound validation" unless @jwt_validator
 
       @jwt_validator.validate!(env["HTTP_AUTHORIZATION"], service_url: activity.service_url)
-    end
-
-    def validate_service_url!(activity)
-      return if @skip_service_url_validation
-
-      @service_url_validator.validate!(activity.service_url)
     end
 
     def run_handlers(context)
@@ -229,17 +211,16 @@ module Teams
       )
     end
 
+    # Merges only the sender and conversation from the reference, matching the
+    # TypeScript and Python activity senders.
     def activity_for_reference(conversation_reference, activity_or_text)
       activity = normalize_activity(activity_or_text)
       body = activity.respond_to?(:to_h) ? activity.to_h : activity
       return body unless body.is_a?(Hash)
 
       body = body.dup
-      body["from"] ||= conversation_reference.bot.to_h if conversation_reference.bot
-      body["recipient"] ||= conversation_reference.user.to_h if conversation_reference.user
-      body["conversation"] ||= conversation_reference.conversation.to_h
-      body["channelId"] ||= conversation_reference.channel_id if conversation_reference.channel_id
-      body["locale"] ||= conversation_reference.locale if conversation_reference.locale
+      body["from"] = conversation_reference.bot.to_h if conversation_reference.bot
+      body["conversation"] = conversation_reference.conversation.to_h
       body
     end
 
@@ -247,6 +228,12 @@ module Teams
       return unless activity.is_a?(Hash)
 
       activity["id"] || activity[:id]
+    end
+
+    def targeted_activity?(activity)
+      activity.is_a?(Hash) &&
+        activity["type"] == "message" &&
+        activity.dig("recipient", "isTargeted") == true
     end
 
     def assert_string!(value, name)

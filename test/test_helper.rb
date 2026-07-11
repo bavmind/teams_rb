@@ -11,20 +11,29 @@ require "stringio"
 require "teams"
 
 class FakeApi
-  attr_reader :service_url, :sent, :replies, :updates
+  attr_reader :service_url, :sent, :replies, :updates, :targeted_sent, :targeted_updates
+  attr_accessor :send_filter
 
   def initialize(service_url: "https://smba.trafficmanager.net/teams")
     @service_url = service_url
     @sent = []
     @replies = []
     @updates = []
+    @targeted_sent = []
+    @targeted_updates = []
   end
 
   def send_to_conversation(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
+    @send_filter&.call(snapshot)
     @sent << [conversation_id, snapshot, service_url]
-    { "id" => stream_id_for(payload) || "sent-#{@sent.length}" }
+
+    # Live Teams answers the stream-starting post with 201 and an id, but
+    # follow-up posts that carry a streamId get 202 with an empty body.
+    return nil if stream_id_for(payload)
+
+    { "id" => "sent-#{@sent.length}" }
   end
 
   def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)
@@ -38,6 +47,20 @@ class FakeApi
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
     @updates << [conversation_id, activity_id, snapshot, service_url]
+    { "id" => activity_id }
+  end
+
+  def send_targeted_to_conversation(conversation_id, activity, service_url: nil)
+    payload = activity.respond_to?(:to_h) ? activity.to_h : activity
+    snapshot = Marshal.load(Marshal.dump(payload))
+    @targeted_sent << [conversation_id, snapshot, service_url]
+    { "id" => "targeted-#{@targeted_sent.length}" }
+  end
+
+  def update_targeted_activity(conversation_id, activity_id, activity, service_url: nil)
+    payload = activity.respond_to?(:to_h) ? activity.to_h : activity
+    snapshot = Marshal.load(Marshal.dump(payload))
+    @targeted_updates << [conversation_id, activity_id, snapshot, service_url]
     { "id" => activity_id }
   end
 
@@ -104,6 +127,13 @@ def teams_payload(text: "hello", service_url: "https://smba.trafficmanager.net/t
     "conversation" => { "id" => "conversation-1" },
     "text" => text
   }
+end
+
+def targeted_teams_payload(text: "hello")
+  payload = teams_payload(text:)
+  payload["recipient"] = payload["recipient"].merge("isTargeted" => true)
+  payload["conversation"] = payload["conversation"].merge("conversationType" => "groupChat")
+  payload
 end
 
 def message_update_payload(text: "edited", event_type: "editMessage")
