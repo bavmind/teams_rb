@@ -44,6 +44,18 @@ module Teams
       register("undelete_message", message_update_event_selector("undeleteMessage"), &block)
     end
 
+    # Matches task/fetch invokes; with a dialog_id, only those whose card
+    # action data carries that "dialog_id" value.
+    def on_dialog_open(dialog_id = nil, &block)
+      register("dialog.open", dialog_selector("task/fetch", "dialog_id", dialog_id), &block)
+    end
+
+    # Matches task/submit invokes; with an action, only those whose card
+    # action data carries that "action" value.
+    def on_dialog_submit(action = nil, &block)
+      register("dialog.submit", dialog_selector("task/submit", "action", action), &block)
+    end
+
     def matching(activity)
       @routes.select { |route| route.selector.call(activity) }
     end
@@ -71,6 +83,16 @@ module Teams
         end
 
         false
+      end
+    end
+
+    def dialog_selector(invoke_name, key, expected)
+      lambda do |activity|
+        next false unless activity.invoke? && activity.name == invoke_name
+        next true if expected.nil?
+
+        data = activity.raw.dig("value", "data")
+        data.is_a?(Hash) && data[key] == expected
       end
     end
 

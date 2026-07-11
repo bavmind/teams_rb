@@ -177,6 +177,14 @@ def quoted_teams_payload
   )
 end
 
+def dialog_invoke_payload(name, data: {}, context: { "theme" => "default" })
+  teams_payload.merge(
+    "type" => "invoke",
+    "name" => name,
+    "value" => { "data" => data, "context" => context }
+  )
+end
+
 def suggested_action_submit_payload(value: { "choice" => "approve" })
   teams_payload.merge(
     "type" => "invoke",

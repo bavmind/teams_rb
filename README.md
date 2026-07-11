@@ -235,6 +235,37 @@ teams.on_message do |ctx|
 end
 ```
 
+Dialogs (Teams task modules) open from a card action whose data carries `msteams: { type: "task/fetch" }`. Route them with `on_dialog_open` / `on_dialog_submit`; the reserved `dialog_id` and `action` data keys select specific handlers, matching the other SDKs. The handler's return value — a `Teams::Api::TaskModuleResponse` (or an equivalent hash) — becomes the invoke response Teams renders:
+
+```ruby
+teams.on_message(/^form$/i) do |ctx|
+  ctx.post Teams::Api::MessageActivity.new.add_card(
+    Teams::Cards::AdaptiveCard.new(
+      Teams::Cards::TextBlock.new("Open the form"),
+      actions: [Teams::Cards::SubmitAction.new(
+        title: "Open",
+        data: { "msteams" => { "type" => "task/fetch" }, "dialog_id" => "simple_form" }
+      )]
+    )
+  )
+end
+
+teams.on_dialog_open("simple_form") do |ctx|
+  Teams::Api::TaskModuleResponse.new(
+    Teams::Api::TaskModuleContinueResponse.new(
+      Teams::Api::TaskModuleTaskInfo.new(title: "Simple Form", card: dialog_card)
+    )
+  )
+end
+
+teams.on_dialog_submit("submit_simple_form") do |ctx|
+  ctx.post "Hi #{ctx.activity.value.data["name"]}!"
+  Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("Form was submitted"))
+end
+```
+
+`TaskModuleTaskInfo` takes `card:` (an `AdaptiveCard`, card hash, or ready attachment — cards are wrapped into an attachment automatically) or `url:` for webpage dialogs, plus `title:`, `height:`/`width:` (`"small"`/`"medium"`/`"large"` or pixels), `fallback_url:`, and `completion_bot_id:`. Returning a `TaskModuleContinueResponse` from a submit handler chains multi-step dialogs; a `TaskModuleMessageResponse` shows a message and closes.
+
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
 ```ruby

@@ -921,6 +921,103 @@ class AppTest < Minitest::Test
     assert_equal [first, second], closes
   end
 
+  def test_dialog_open_returns_card_dialog_as_invoke_response_body
+    @teams.on_dialog_open do |_ctx|
+      Teams::Api::TaskModuleResponse.new(
+        Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(
+            title: "Simple Form",
+            card: { "type" => "AdaptiveCard", "version" => "1.6", "body" => [] }
+          )
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "continue", body.dig("task", "type")
+    assert_equal "Simple Form", body.dig("task", "value", "title")
+    assert_equal "application/vnd.microsoft.card.adaptive", body.dig("task", "value", "card", "contentType")
+    assert_equal "AdaptiveCard", body.dig("task", "value", "card", "content", "type")
+  end
+
+  def test_dialog_open_routes_by_dialog_id
+    opened = []
+    @teams.on_dialog_open("simple_form") do |ctx|
+      opened << ctx.activity.value.data["dialog_id"]
+      { "task" => { "type" => "message", "value" => "simple" } }
+    end
+    @teams.on_dialog_open("other_form") do |_ctx|
+      { "task" => { "type" => "message", "value" => "other" } }
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch", data: { "dialog_id" => "simple_form" })),
+      { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["simple_form"], opened
+    assert_equal "simple", JSON.parse(last_response.body).dig("task", "value")
+  end
+
+  def test_dialog_open_url_task_info
+    @teams.on_dialog_open do |_ctx|
+      Teams::Api::TaskModuleResponse.new(
+        Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(title: "Webpage", url: "https://example.com/form", width: 1000, height: "large")
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch")), { "CONTENT_TYPE" => "application/json" }
+
+    value = JSON.parse(last_response.body).dig("task", "value")
+    assert_equal(
+      { "title" => "Webpage", "height" => "large", "width" => 1000, "url" => "https://example.com/form" },
+      value
+    )
+  end
+
+  def test_dialog_submit_routes_by_action_and_returns_message_response
+    submitted = []
+    @teams.on_dialog_submit("submit_simple_form") do |ctx|
+      submitted << ctx.activity.value.data["name"]
+      Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("Form was submitted"))
+    end
+
+    payload = dialog_invoke_payload("task/submit", data: { "action" => "submit_simple_form", "name" => "Devran" })
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["Devran"], submitted
+    assert_equal(
+      { "task" => { "type" => "message", "value" => "Form was submitted" } },
+      JSON.parse(last_response.body)
+    )
+  end
+
+  def test_dialog_submit_with_non_matching_action_does_not_run
+    @teams.on_dialog_submit("wanted") do |_ctx|
+      Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("nope"))
+    end
+
+    payload = dialog_invoke_payload("task/submit", data: { "action" => "unwanted" })
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "", last_response.body
+  end
+
+  def test_message_handler_return_value_does_not_leak_into_response_body
+    @teams.on_message { |ctx| ctx.reply "echo" }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "", last_response.body
+  end
+
   def test_typing_accepts_optional_text
     @teams.on_message do |ctx|
       ctx.typing

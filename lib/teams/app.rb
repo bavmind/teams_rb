@@ -70,6 +70,22 @@ module Teams
       self
     end
 
+    # Registers a dialog (task module) open handler for task/fetch invokes.
+    # With a dialog_id, only invokes whose card action data carries that
+    # "dialog_id" value match. The handler's return value (a
+    # Api::TaskModuleResponse or hash) becomes the invoke response body.
+    def on_dialog_open(dialog_id = nil, &block)
+      @router.on_dialog_open(dialog_id, &block)
+      self
+    end
+
+    # Registers a dialog (task module) submit handler for task/submit
+    # invokes, optionally filtered by the "action" value in the submit data.
+    def on_dialog_submit(action = nil, &block)
+      @router.on_dialog_submit(action, &block)
+      self
+    end
+
     def on_message_update(&block)
       @router.on_message_update(&block)
       self
@@ -99,7 +115,10 @@ module Teams
       result = run_handlers(context)
       context.stream.close
 
-      result.is_a?(Response) ? result : Response.new(status: 200)
+      return result if result.is_a?(Response)
+
+      body = activity.invoke? ? invoke_response_body(result) : nil
+      Response.new(status: 200, body:)
     rescue StreamCancelledError
       Response.new(status: 200)
     end
@@ -169,6 +188,19 @@ module Teams
     end
 
     private
+
+    # Invoke handler return values become the invoke response body, like the
+    # TypeScript/Python SDKs. Only explicit response shapes count: Ruby
+    # methods implicitly return their last expression, so an invoke handler
+    # ending in ctx.post must not leak the SentActivity into the response.
+    def invoke_response_body(result)
+      case result
+      when Api::TaskModuleResponse
+        result.to_h
+      when Hash
+        Common::Hashes.deep_stringify_keys(result)
+      end
+    end
 
     def activity_with_id(activity_id, activity_or_text)
       outbound = normalize_activity(activity_or_text)
