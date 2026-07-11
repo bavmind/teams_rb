@@ -1,0 +1,55 @@
+{
+  "name": "task/fetch",
+  "type": "invoke",
+  "timestamp": "2026-07-11T13:59:08.05Z",
+  "localTimestamp": "2026-07-11T15:59:08.05+02:00",
+  "id": "f:12d7ea3b-7c91-e8d6-ab93-4d51b0809d67",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/de/00000000-0000-0000-0000-0000000000ff/",
+  "from": {
+    "id": "29:1-sanitized-user-id",
+    "name": "Test User",
+    "aadObjectId": "00000000-0000-0000-0000-00000000aaaa"
+  },
+  "conversation": {
+    "conversationType": "personal",
+    "tenantId": "00000000-0000-0000-0000-0000000000ff",
+    "id": "a:1sanitizedConversationId"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-0000-0000-0000000000bb",
+    "name": "Test Bot"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "country": "US",
+      "platform": "Mac",
+      "timezone": "Etc/UTC",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "tenant": {
+      "id": "00000000-0000-0000-0000-0000000000ff"
+    },
+    "source": {
+      "name": "compose"
+    },
+    "legacy": {
+      "replyToId": "1:1sanitizedLegacyReplyId"
+    }
+  },
+  "replyToId": "1783778345973",
+  "value": {
+    "data": {
+      "dialog_id": "simple_form",
+      "type": "task/fetch"
+    },
+    "context": {
+      "theme": "default"
+    }
+  },
+  "locale": "en-US",
+  "localTimezone": "Etc/UTC"
+}

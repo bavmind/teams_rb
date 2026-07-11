@@ -1,0 +1,34 @@
+{
+  "reactionsAdded": [
+    {
+      "type": "like"
+    }
+  ],
+  "type": "messageReaction",
+  "timestamp": "2026-07-11T13:58:58.4647421Z",
+  "id": "1783778273311",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/de/00000000-0000-0000-0000-0000000000ff/",
+  "from": {
+    "id": "29:1-sanitized-user-id",
+    "aadObjectId": "00000000-0000-0000-0000-00000000aaaa"
+  },
+  "conversation": {
+    "conversationType": "personal",
+    "tenantId": "00000000-0000-0000-0000-0000000000ff",
+    "id": "a:1sanitizedConversationId"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-0000-0000-0000000000bb",
+    "name": "Test Bot"
+  },
+  "channelData": {
+    "tenant": {
+      "id": "00000000-0000-0000-0000-0000000000ff"
+    },
+    "legacy": {
+      "replyToId": "1:1sanitizedLegacyReplyId"
+    }
+  },
+  "replyToId": "1783778273311"
+}
