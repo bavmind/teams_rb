@@ -337,10 +337,24 @@ ctx.reply card
 ctx.post Teams::Api::MessageActivity.new.add_card(card)
 ```
 
+## Configuration
+
+`Teams::App.new` reads its configuration from the environment by default; every value can also be passed explicitly as a keyword argument:
+
+| Env var | Keyword | Required | Purpose |
+|---|---|---|---|
+| `CLIENT_ID` | `client_id:` | production | The bot's Microsoft App ID. Used for bot token requests and to validate inbound JWT audiences. |
+| `CLIENT_SECRET` | `client_secret:` | production | The bot's client secret for the client-credentials token flow. |
+| `TENANT_ID` | `tenant_id:` | single-tenant bots | Entra tenant for bot tokens and tenant-issuer JWT validation. |
+| `SERVICE_URL` | `service_url:` | no | Default Bot Framework service URL for proactive sends (defaults to `https://smba.trafficmanager.net/teams`). Inbound requests always use the service URL from the activity. |
+| — | `skip_auth:` | no | Disables inbound request validation. Local development only. |
+| — | `messaging_endpoint:` | no | Inbound path, defaults to `/api/messages`. |
+| — | `logger:`, `storage:`, `cloud:` | no | Logger (defaults to stdout), state store (defaults to the in-memory store), and cloud environment for sovereign clouds. |
+
 For local tests only:
 
 ```ruby
 teams = Teams::App.new(skip_auth: true)
 ```
 
-Production apps should provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`.
+Production apps must provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`. Without credentials the app logs a startup warning and rejects every inbound request unless `skip_auth: true` was set explicitly — the same behavior as the TypeScript, Python, and .NET SDKs.

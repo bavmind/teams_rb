@@ -1018,6 +1018,27 @@ class AppTest < Minitest::Test
     assert_equal "", last_response.body
   end
 
+  def test_warns_at_startup_without_credentials
+    output = StringIO.new
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))
+
+    assert_includes output.string, "All incoming requests will be rejected"
+  end
+
+  def test_warns_at_startup_without_credentials_when_skip_auth_enabled
+    output = StringIO.new
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, skip_auth: true, logger: Logger.new(output))
+
+    assert_includes output.string, "accept unauthenticated requests on /api/messages"
+  end
+
+  def test_no_startup_warning_with_credentials
+    output = StringIO.new
+    Teams::App.new(client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: Logger.new(output))
+
+    refute_includes output.string, "No credentials configured"
+  end
+
   def test_typing_accepts_optional_text
     @teams.on_message do |ctx|
       ctx.typing

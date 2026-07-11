@@ -39,6 +39,8 @@ module Teams
         tenant_id: @token_manager.credentials&.tenant_id,
         cloud:
       ) if @token_manager.client_id
+
+      warn_missing_credentials
     end
 
     def to_rack
@@ -206,6 +208,26 @@ module Teams
       outbound = normalize_activity(activity_or_text)
       body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
       body.merge("id" => activity_id)
+    end
+
+    # The same two startup warnings the TypeScript, Python, and .NET SDKs
+    # log when no credentials are configured. Settled 2026-07-12: exact
+    # upstream branches only; credentials-plus-skip_auth stays silent like
+    # the other SDKs.
+    def warn_missing_credentials
+      return if @token_manager.client_id
+
+      if @skip_auth
+        logger&.warn(
+          "No credentials configured (CLIENT_ID / CLIENT_SECRET / TENANT_ID), " \
+          "but skip_auth is enabled. Bot will accept unauthenticated requests on #{@messaging_endpoint}."
+        )
+      else
+        logger&.warn(
+          "No credentials configured and skip_auth is not enabled. All incoming requests will be rejected. " \
+          "Configure client authentication to securely receive messages, or set skip_auth: true for local development."
+        )
+      end
     end
 
     def validate_inbound!(env, activity)
