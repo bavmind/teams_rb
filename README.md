@@ -358,3 +358,55 @@ teams = Teams::App.new(skip_auth: true)
 ```
 
 Production apps must provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`. Without credentials the app logs a startup warning and rejects every inbound request unless `skip_auth: true` was set explicitly — the same behavior as the TypeScript, Python, and .NET SDKs.
+
+## Rails
+
+Define the app once (an initializer works well) and route the messaging endpoint to it:
+
+```ruby
+# config/initializers/teams_bot.rb
+TEAMS_BOT = Teams::App.new
+
+TEAMS_BOT.on_message do |ctx|
+  ctx.reply "Hello from Rails"
+end
+```
+
+```ruby
+# config/routes.rb
+post "/api/messages" => TEAMS_BOT.to_rack
+```
+
+Routing the exact path (rather than `mount`) keeps the request's full path intact, which the endpoint check relies on. If you prefer `mount`, mount at root — `mount TEAMS_BOT.to_rack => "/"` — and let the SDK's own endpoint matching answer 404 for everything else; register whichever full URL you chose with Teams.
+
+Handlers run inside the web request, so treat them like controller actions: keep them fast, and push slow work (LLM calls, big queries) to a job, then deliver the result proactively with the stored conversation reference. Remember that Bot Framework delivers at-least-once — if a handler's side effect must not repeat, dedupe by `ctx.activity.id` before performing it:
+
+```ruby
+teams.on_message do |ctx|
+  next if ProcessedActivity.exists?(activity_id: ctx.activity.id)
+  ProcessedActivity.create!(activity_id: ctx.activity.id)
+
+  answer = Assistant.answer(user: ctx.activity.from.aad_object_id, text: ctx.activity.text)
+  ctx.stream.emit(answer)
+end
+```
+
+## Local development
+
+1. Register a bot (Microsoft's [Teams CLI](https://github.com/microsoft/teams-sdk) or the Developer Portal) and note the client id, client secret, and tenant id. Put them in `.env` as `CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`.
+2. Expose your local port with a persistent tunnel, e.g. Dev Tunnels: `devtunnel create teams-bot -a && devtunnel port create teams-bot -p 3978`, then `devtunnel host teams-bot`.
+3. Set the bot's messaging endpoint to `https://<your-tunnel>/api/messages` in the bot registration, and install the app in Teams.
+4. Run the app: `bundle exec rackup -p 3978 -o 0.0.0.0`. Inbound requests are JWT-validated with your real credentials — no `skip_auth` needed behind a tunnel.
+
+If the tunnel URL is stable (Dev Tunnels URLs are), steps 1–3 are one-time setup.
+
+## API reference
+
+| Surface | Methods |
+|---|---|
+| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
+| Context (`ctx`) | `activity`, `ref` / `conversation_reference`, `post`, `reply`, `quote(message_id, ...)`, `update(activity_id, ...)`, `typing(text = nil)`, `stream` (`emit`, `update`, `clear_text`, `close`, `on_chunk`, `on_close`), `api`, `storage`, `log` |
+| Proactive (`teams`) | `post(conversation_id, activity)`, `reply(conversation_id, activity_id, activity)`, `update(conversation_id, activity_id, activity)`, `send_activity(reference, activity)` |
+| API client (`teams.api`) | `conversations` (`create`, `create_activity`, `reply_to_activity`, `update_activity`, `delete_activity`, targeted variants, `get_members`, `get_member_by_id`, `get_paged_members`, `get_activity_members`, `add_reaction`, `delete_reaction`), `teams` (`get_by_id`, `get_conversations`), `meetings` (`get_by_id`, `get_participant`, `send_notification`) |
+| Sends return | `Teams::Api::SentActivity` (outbound activity merged with the server response; `#id`, `#[]`, `#to_h`) |
+| Auth | Inbound JWTs validated against Bot Framework/Entra issuers, the three audience forms, expiry/nbf, signature, and the `serviceurl` claim. Outbound bot tokens via client-credentials flow, cached with refresh skew. `AuthenticationError` → 401, `BadRequestError` → 400, handler errors → 500 (Bot Framework then redelivers). |
