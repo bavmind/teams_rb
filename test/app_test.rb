@@ -1018,6 +1018,121 @@ class AppTest < Minitest::Test
     assert_equal "", last_response.body
   end
 
+  def test_message_ext_query_returns_result_list
+    @teams.on_message_ext_query do |ctx|
+      search = ctx.activity.value.parameters.find { |param| param["name"] == "searchQuery" }
+      Teams::Api::MessagingExtensionResponse.new(
+        Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [
+            Teams::Api::MessagingExtensionAttachment.new(
+              content_type: "application/vnd.microsoft.card.adaptive",
+              content: { "type" => "AdaptiveCard", "version" => "1.6", "body" => [] },
+              preview: { "contentType" => "application/vnd.microsoft.card.thumbnail",
+                         "content" => { "title" => search["value"] } }
+            )
+          ]
+        )
+      )
+    end
+
+    payload = message_ext_payload(
+      "composeExtension/query",
+      "commandId" => "searchCmd",
+      "parameters" => [{ "name" => "searchQuery", "value" => "ruby" }],
+      "queryOptions" => { "skip" => 0, "count" => 25 }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    result = body["composeExtension"]
+    assert_equal "result", result["type"]
+    assert_equal "list", result["attachmentLayout"]
+    assert_equal "ruby", result["attachments"].first.dig("preview", "content", "title")
+  end
+
+  def test_message_ext_submit_returns_action_response_with_result
+    @teams.on_message_ext_submit do |_ctx|
+      Teams::Api::MessagingExtensionActionResponse.new(
+        compose_extension: Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [{ "contentType" => "application/vnd.microsoft.card.adaptive",
+                          "content" => { "type" => "AdaptiveCard", "body" => [] } }]
+        )
+      )
+    end
+
+    payload = message_ext_payload(
+      "composeExtension/submitAction",
+      "commandId" => "createCmd",
+      "data" => { "title" => "New item" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "result", body.dig("composeExtension", "type")
+  end
+
+  def test_message_ext_open_returns_dialog_via_task
+    @teams.on_message_ext_open do |ctx|
+      assert_equal "createCmd", ctx.activity.value.command_id
+      Teams::Api::MessagingExtensionActionResponse.new(
+        task: Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(title: "Create item", card: { "type" => "AdaptiveCard", "body" => [] })
+        )
+      )
+    end
+
+    payload = message_ext_payload("composeExtension/fetchTask", "commandId" => "createCmd")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "continue", body.dig("task", "type")
+    assert_equal "Create item", body.dig("task", "value", "title")
+  end
+
+  def test_message_ext_query_link_unfurls
+    @teams.on_message_ext_query_link do |ctx|
+      Teams::Api::MessagingExtensionResponse.new(
+        Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [{ "contentType" => "application/vnd.microsoft.card.adaptive",
+                          "content" => { "type" => "AdaptiveCard",
+                                         "body" => [{ "type" => "TextBlock", "text" => ctx.activity.value.raw["url"] }] } }]
+        )
+      )
+    end
+
+    payload = message_ext_payload("composeExtension/queryLink", "url" => "https://example.com/item/1")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "https://example.com/item/1",
+      body.dig("composeExtension", "attachments", 0, "content", "body", 0, "text")
+  end
+
+  def test_message_ext_routes_are_isolated_by_invoke_name
+    fired = []
+    @teams.on_message_ext_query { |_ctx| fired << :query; nil }
+    @teams.on_message_ext_select_item { |_ctx| fired << :select_item; nil }
+    @teams.on_message_ext_setting { |_ctx| fired << :setting; nil }
+    @teams.on_message_ext_card_button_clicked { |_ctx| fired << :card_button; nil }
+
+    payload = message_ext_payload("composeExtension/selectItem", "itemId" => "42")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [:select_item], fired
+    assert_equal "", last_response.body
+  end
+
   def test_warns_at_startup_without_credentials
     output = StringIO.new
     Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))

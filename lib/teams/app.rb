@@ -88,6 +88,17 @@ module Teams
       self
     end
 
+    # Message extension handlers (on_message_ext_query, on_message_ext_submit,
+    # on_message_ext_open, ...) route the composeExtension/* invokes with the
+    # TypeScript/Python route names. Handler return values (typed responses
+    # or hashes) become the invoke response body.
+    Router::MESSAGE_EXTENSION_HANDLER_METHODS.each_key do |method_name|
+      define_method(method_name) do |&block|
+        @router.public_send(method_name, &block)
+        self
+      end
+    end
+
     def on_message_update(&block)
       @router.on_message_update(&block)
       self
@@ -197,7 +208,7 @@ module Teams
     # ending in ctx.post must not leak the SentActivity into the response.
     def invoke_response_body(result)
       case result
-      when Api::TaskModuleResponse
+      when Api::TaskModuleResponse, Api::MessagingExtensionResponse, Api::MessagingExtensionActionResponse
         result.to_h
       when Hash
         Common::Hashes.deep_stringify_keys(result)

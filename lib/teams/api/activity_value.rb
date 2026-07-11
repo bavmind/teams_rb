@@ -8,6 +8,16 @@ module Teams
       def data
         read("data")
       end
+
+      # The message extension command that fired (query/submit/fetchTask).
+      def command_id
+        read("commandId", "command_id")
+      end
+
+      # Message extension query parameters: [{"name" => ..., "value" => ...}].
+      def parameters
+        Array(read("parameters"))
+      end
     end
   end
 end

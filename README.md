@@ -266,6 +266,33 @@ end
 
 `TaskModuleTaskInfo` takes `card:` (an `AdaptiveCard`, card hash, or ready attachment — cards are wrapped into an attachment automatically) or `url:` for webpage dialogs, plus `title:`, `height:`/`width:` (`"small"`/`"medium"`/`"large"` or pixels), `fallback_url:`, and `completion_bot_id:`. Returning a `TaskModuleContinueResponse` from a submit handler chains multi-step dialogs; a `TaskModuleMessageResponse` shows a message and closes.
 
+Message extensions (compose extensions) route the `composeExtension/*` invokes with the same handler names as the Python SDK: `on_message_ext_query`, `on_message_ext_select_item`, `on_message_ext_submit`, `on_message_ext_open` (fetchTask), `on_message_ext_query_link`, `on_message_ext_anon_query_link`, `on_message_ext_query_settings_url`, `on_message_ext_setting`, and `on_message_ext_card_button_clicked`. The commands themselves are declared in the Teams app manifest; query handlers return a `MessagingExtensionResponse`, action handlers a `MessagingExtensionActionResponse` (which can open a dialog via `task:`, reusing the task module responses):
+
+```ruby
+teams.on_message_ext_query do |ctx|
+  query = ctx.activity.value.parameters.find { |p| p["name"] == "searchQuery" }&.dig("value")
+  results = Item.search(query).map do |item|
+    Teams::Api::MessagingExtensionAttachment.new(
+      content_type: "application/vnd.microsoft.card.adaptive",
+      content: item.to_card,
+      preview: { "contentType" => "application/vnd.microsoft.card.thumbnail",
+                 "content" => { "title" => item.title } }
+    )
+  end
+
+  Teams::Api::MessagingExtensionResponse.new(
+    Teams::Api::MessagingExtensionResult.new(type: "result", attachment_layout: "list", attachments: results)
+  )
+end
+
+teams.on_message_ext_query_link do |ctx|
+  card = unfurl(ctx.activity.value.raw["url"])
+  Teams::Api::MessagingExtensionResponse.new(
+    Teams::Api::MessagingExtensionResult.new(type: "result", attachment_layout: "list", attachments: [card])
+  )
+end
+```
+
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
 ```ruby

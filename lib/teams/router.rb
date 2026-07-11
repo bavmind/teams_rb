@@ -56,6 +56,30 @@ module Teams
       register("dialog.submit", dialog_selector("task/submit", "action", action), &block)
     end
 
+    # Message extension (compose extension) invoke routes, using the same
+    # route names as the TypeScript and Python SDKs.
+    MESSAGE_EXTENSION_ROUTES = {
+      "message.ext.query" => "composeExtension/query",
+      "message.ext.select-item" => "composeExtension/selectItem",
+      "message.ext.submit" => "composeExtension/submitAction",
+      "message.ext.open" => "composeExtension/fetchTask",
+      "message.ext.query-link" => "composeExtension/queryLink",
+      "message.ext.anon-query-link" => "composeExtension/anonymousQueryLink",
+      "message.ext.query-settings-url" => "composeExtension/querySettingUrl",
+      "message.ext.setting" => "composeExtension/setting",
+      "message.ext.card-button-clicked" => "composeExtension/onCardButtonClicked"
+    }.freeze
+
+    MESSAGE_EXTENSION_HANDLER_METHODS = MESSAGE_EXTENSION_ROUTES.keys.to_h do |route_name|
+      ["on_#{route_name.sub("message.ext.", "message_ext_").tr("-", "_")}", route_name]
+    end.freeze
+
+    MESSAGE_EXTENSION_HANDLER_METHODS.each do |method_name, route_name|
+      define_method(method_name) do |&block|
+        register(route_name, invoke_selector(MESSAGE_EXTENSION_ROUTES.fetch(route_name)), &block)
+      end
+    end
+
     def matching(activity)
       @routes.select { |route| route.selector.call(activity) }
     end
@@ -84,6 +108,10 @@ module Teams
 
         false
       end
+    end
+
+    def invoke_selector(invoke_name)
+      ->(activity) { activity.invoke? && activity.name == invoke_name }
     end
 
     def dialog_selector(invoke_name, key, expected)
