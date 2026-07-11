@@ -90,6 +90,27 @@ Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post, reply, or update later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply` / `teams.update`.
 
+To message a user without a stored conversation, create (or re-fetch) the 1:1 conversation first. Teams returns the existing conversation if one already exists for the same members:
+
+```ruby
+conversation = teams.api.conversations.create(
+  members: [{ id: user_id }],   # the user's Teams/Bot Framework id, e.g. "29:..."
+  tenant_id: tenant_id
+)
+teams.post(conversation.id, "Hello from your SaaS backend")
+```
+
+Conversation rosters come from the members APIs, which return `Teams::Api::Account` objects (with `aadObjectId` normalized, matching the other SDKs):
+
+```ruby
+teams.api.conversations.get_members(conversation_id)
+teams.api.conversations.get_member_by_id(conversation_id, member_id)
+teams.api.conversations.get_paged_members(conversation_id, page_size: 200)          # => Teams::Api::PagedMembersResult
+teams.api.conversations.get_activity_members(conversation_id, activity_id)
+```
+
+Use `get_paged_members` for large rosters: pass the result's `continuation_token` back in until it returns `nil`.
+
 For modeled Ruby object access, use snake_case field names:
 
 ```ruby

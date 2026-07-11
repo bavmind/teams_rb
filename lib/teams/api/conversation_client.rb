@@ -15,6 +15,21 @@ module Teams
         @logger = logger
       end
 
+      # Creates a conversation (or returns the pre-existing one for the same
+      # members). isGroup/bot/topicName are omitted: the SDKs deprecate them
+      # for removal, and Python never had them.
+      def create(members: nil, tenant_id: nil, activity: nil, channel_data: nil, service_url: nil)
+        body = {}
+        body["members"] = members.map { |member| account_to_h(member) } if members
+        body["tenantId"] = tenant_id if tenant_id
+        body["activity"] = activity_to_h(activity) if activity
+        body["channelData"] = Common::Hashes.deep_stringify_keys(channel_data) if channel_data
+
+        url = absolute("/v3/conversations", service_url:)
+        @logger&.debug("Teams API POST #{url}")
+        ConversationResource.new(http.post(url, json: body))
+      end
+
       def create_activity(conversation_id, activity, service_url: nil)
         path = "/v3/conversations/#{escape(conversation_id)}/activities"
         url = absolute(path, service_url:)
@@ -66,6 +81,41 @@ module Teams
         http.delete(url, params: TARGETED_PARAMS)
       end
 
+      # The backend returns objectId instead of aadObjectId on some member
+      # endpoints; Api::Account reads both, so the accounts here are already
+      # normalized like the other SDKs' TeamsChannelAccount.
+      def get_members(conversation_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/members"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API GET #{url}")
+        Array(http.get(url)).map { |member| Account.new(member) }
+      end
+
+      def get_member_by_id(conversation_id, member_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/members/#{escape(member_id)}"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API GET #{url}")
+        Account.new(http.get(url))
+      end
+
+      def get_paged_members(conversation_id, page_size: nil, continuation_token: nil, service_url: nil)
+        params = {}
+        params["pageSize"] = page_size if page_size
+        params["continuationToken"] = continuation_token if continuation_token
+
+        path = "/v3/conversations/#{escape(conversation_id)}/pagedMembers"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API GET #{url}")
+        PagedMembersResult.new(http.get(url, params: params.empty? ? nil : params))
+      end
+
+      def get_activity_members(conversation_id, activity_id, service_url: nil)
+        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}/members"
+        url = absolute(path, service_url:)
+        @logger&.debug("Teams API GET #{url}")
+        Array(http.get(url)).map { |member| Account.new(member) }
+      end
+
       def add_reaction(conversation_id, activity_id, reaction_type)
         reactions.add(conversation_id, activity_id, reaction_type)
       end
@@ -78,6 +128,10 @@ module Teams
 
       def reactions
         @reactions ||= ReactionClient.new(service_url:, http:)
+      end
+
+      def account_to_h(account)
+        account.is_a?(Hash) ? Common::Hashes.deep_stringify_keys(account) : account.to_h
       end
 
       def activity_to_h(activity)
