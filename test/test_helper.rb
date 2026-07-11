@@ -86,12 +86,24 @@ class FakeHttp
   end
 
   def get(url, **)
-    responses.fetch(url)
+    respond(url)
   end
 
   def post(url, **kwargs)
     @posts << [url, kwargs]
-    responses.fetch(url)
+    respond(url)
+  end
+
+  private
+
+  # A response value may be a plain body, a proc returning one, or an
+  # exception instance to raise (mirroring HttpClient raising HttpError).
+  def respond(url)
+    response = responses.fetch(url)
+    response = response.call if response.respond_to?(:call)
+    raise response if response.is_a?(Exception)
+
+    response
   end
 end
 
