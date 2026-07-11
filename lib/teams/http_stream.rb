@@ -260,14 +260,14 @@ module Teams
       # Stream chunks and the streamed final carry a streaminfo entity and are
       # always created; only the timed-out in-place final routes through update.
       if body["id"] && !streaminfo_entity?(body)
-        app.api.update_activity(
+        app.api.conversations.update_activity(
           conversation_reference.conversation_id,
           body["id"],
           body,
           service_url: conversation_reference.service_url
         )
       else
-        app.api.send_to_conversation(
+        app.api.conversations.create_activity(
           conversation_reference.conversation_id,
           body,
           service_url: conversation_reference.service_url

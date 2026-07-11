@@ -3,6 +3,36 @@
 require_relative "test_helper"
 
 class ApiClientTest < Minitest::Test
+  def test_exposes_conversations_client
+    api = Teams::Api::Client.new(
+      service_url: "https://smba.trafficmanager.net/teams",
+      http: Teams::Common::HttpClient.new
+    )
+
+    assert_instance_of Teams::Api::ConversationClient, api.conversations
+    assert_same api.conversations, api.conversations
+  end
+
+  def test_creates_activity
+    stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+      stub.post("/teams/v3/conversations/conversation-1/activities") do |env|
+        assert_equal(
+          { "type" => "message", "text" => "hello" },
+          JSON.parse(env.body)
+        )
+
+        [201, { "Content-Type" => "application/json" }, JSON.generate("id" => "created-1")]
+      end
+    end
+    client = api_client(stubs)
+
+    assert_equal(
+      { "id" => "created-1" },
+      client.create_activity("conversation-1", "hello")
+    )
+    stubs.verify_stubbed_calls
+  end
+
   def test_updates_activity
     stubs = Faraday::Adapter::Test::Stubs.new do |stub|
       stub.put("/teams/v3/conversations/conversation-1/activities/activity-1") do |env|
@@ -89,7 +119,7 @@ class ApiClientTest < Minitest::Test
 
     assert_equal(
       { "id" => "targeted-1" },
-      client.send_targeted_to_conversation("conversation-1", "secret")
+      client.create_targeted_activity("conversation-1", "secret")
     )
     stubs.verify_stubbed_calls
   end
@@ -128,6 +158,6 @@ class ApiClientTest < Minitest::Test
     Teams::Api::Client.new(
       service_url: "https://smba.trafficmanager.net/teams",
       http: Teams::Common::HttpClient.new(connection:)
-    )
+    ).conversations
   end
 end

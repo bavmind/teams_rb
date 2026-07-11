@@ -23,7 +23,13 @@ class FakeApi
     @targeted_updates = []
   end
 
-  def send_to_conversation(conversation_id, activity, service_url: nil)
+  # The app sends through api.conversations; the fake records on itself so
+  # tests keep reading api.sent / api.replies / api.updates directly.
+  def conversations
+    self
+  end
+
+  def create_activity(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
     @send_filter&.call(snapshot)
@@ -50,7 +56,7 @@ class FakeApi
     { "id" => activity_id }
   end
 
-  def send_targeted_to_conversation(conversation_id, activity, service_url: nil)
+  def create_targeted_activity(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
     @targeted_sent << [conversation_id, snapshot, service_url]

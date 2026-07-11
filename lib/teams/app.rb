@@ -156,13 +156,13 @@ module Teams
       service_url = conversation_reference.service_url
 
       response = if id && targeted
-        api.update_targeted_activity(conversation_id, id, activity, service_url:)
+        api.conversations.update_targeted_activity(conversation_id, id, activity, service_url:)
       elsif id
-        api.update_activity(conversation_id, id, activity, service_url:)
+        api.conversations.update_activity(conversation_id, id, activity, service_url:)
       elsif targeted
-        api.send_targeted_to_conversation(conversation_id, activity, service_url:)
+        api.conversations.create_targeted_activity(conversation_id, activity, service_url:)
       else
-        api.send_to_conversation(conversation_id, activity, service_url:)
+        api.conversations.create_activity(conversation_id, activity, service_url:)
       end
 
       Api::SentActivity.merge(activity, response)

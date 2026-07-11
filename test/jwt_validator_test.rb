@@ -22,6 +22,26 @@ class JwtValidatorTest < Minitest::Test
     assert_equal "client-id", payload["aud"]
   end
 
+  def test_accepts_api_audience_form
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload.merge("aud" => "api://client-id"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate!("Bearer #{token}")
+
+    assert_equal "api://client-id", payload["aud"]
+  end
+
+  def test_accepts_botid_audience_form
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload.merge("aud" => "api://botid-client-id"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate!("Bearer #{token}")
+
+    assert_equal "api://botid-client-id", payload["aud"]
+  end
+
   def test_rejects_wrong_audience
     rsa, kid, cloud, http = validator_parts
     token = JwtTestHelper.token(

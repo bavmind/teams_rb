@@ -61,8 +61,8 @@ end
 Reactions use the API client shape from the Microsoft SDKs:
 
 ```ruby
-teams.api.reactions.add(conversation_id, activity_id, "like")
-teams.api.reactions.delete(conversation_id, activity_id, "like")
+teams.api.conversations.add_reaction(conversation_id, activity_id, "like")
+teams.api.conversations.delete_reaction(conversation_id, activity_id, "like")
 ```
 
 To update a message later, keep the activity id returned from the original send:
@@ -74,7 +74,7 @@ teams.update(conversation_id, sent.fetch("id"), "Free phones gone now.")
 # equivalent SDK-send style:
 teams.post(conversation_id, Teams::Api::MessageActivity.new("Free phones gone now.").with_id(sent.fetch("id")))
 # lower-level parity surface:
-teams.api.update_activity(conversation_id, sent.fetch("id"), Teams::Api::MessageActivity.new("Free phones gone now."))
+teams.api.conversations.update_activity(conversation_id, sent.fetch("id"), Teams::Api::MessageActivity.new("Free phones gone now."))
 ```
 
 More Rack examples live in `examples/`.

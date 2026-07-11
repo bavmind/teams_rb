@@ -47,7 +47,13 @@ module Teams
         raise AuthenticationError, "JWT expired" if payload["exp"] && now >= payload["exp"].to_i
         raise AuthenticationError, "JWT not active yet" if payload["nbf"] && now < payload["nbf"].to_i
         raise AuthenticationError, "JWT issuer is invalid" unless valid_issuer?(payload["iss"])
-        raise AuthenticationError, "JWT audience is invalid" unless Array(payload["aud"]).include?(@client_id)
+        raise AuthenticationError, "JWT audience is invalid" if (Array(payload["aud"]) & valid_audiences).empty?
+      end
+
+      # Inbound tokens may be audienced as the bare app id, api://{appId},
+      # or api://botid-{appId}; all three SDKs accept all three forms.
+      def valid_audiences
+        [@client_id, "api://#{@client_id}", "api://botid-#{@client_id}"]
       end
 
       def validate_service_url!(payload, expected_service_url)
