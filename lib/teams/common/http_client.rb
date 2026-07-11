@@ -64,6 +64,9 @@ module Teams
 
       def connection
         @connection ||= Faraday.new(url: base_url) do |faraday|
+          # Flat params: arrays encode as repeated plain keys (a=1&a=2),
+          # the shape the Bot Framework token service expects.
+          faraday.options.params_encoder = Faraday::FlatParamsEncoder
           faraday.adapter Faraday.default_adapter
         end
       end

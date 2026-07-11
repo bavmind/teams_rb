@@ -6,7 +6,11 @@ module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
 
-    attr_reader :api, :logger, :storage, :messaging_endpoint
+    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name
+
+    def client_id
+      @token_manager.client_id
+    end
 
     def initialize(
       client_id: ENV["CLIENT_ID"],
@@ -19,8 +23,10 @@ module Teams
       api: nil,
       token_manager: nil,
       skip_auth: false,
-      messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT
+      messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT,
+      default_connection_name: "graph"
     )
+      @default_connection_name = default_connection_name
       @logger = logger
       @storage = storage
       @cloud = cloud
@@ -32,7 +38,8 @@ module Teams
       @api = api || Api::Client.new(
         service_url:,
         http: Common::HttpClient.new(token: -> { @token_manager.bot_token }),
-        logger:
+        logger:,
+        oauth_url: cloud.token_service_url
       )
       @jwt_validator = Auth::JwtValidator.new(
         client_id: @token_manager.client_id,
@@ -85,6 +92,18 @@ module Teams
     # invokes, optionally filtered by the "action" value in the submit data.
     def on_dialog_submit(action = nil, &block)
       @router.on_dialog_submit(action, &block)
+      self
+    end
+
+    # Sign-in invokes: signin/tokenExchange arrives for silent SSO token
+    # exchange, signin/verifyState after interactive OAuth card sign-in.
+    def on_signin_token_exchange(&block)
+      @router.on_signin_token_exchange(&block)
+      self
+    end
+
+    def on_signin_verify_state(&block)
+      @router.on_signin_verify_state(&block)
       self
     end
 

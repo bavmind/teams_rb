@@ -10,8 +10,54 @@ require "base64"
 require "stringio"
 require "teams"
 
+class FakeUserTokens
+  attr_accessor :token
+  attr_reader :sign_outs, :token_requests
+
+  def initialize
+    @token = nil
+    @sign_outs = []
+    @token_requests = []
+  end
+
+  def get_token(user_id:, connection_name:, channel_id: nil, code: nil)
+    @token_requests << { user_id:, connection_name:, channel_id:, code: }
+    unless @token
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::TokenResponse.new("connectionName" => connection_name, "token" => @token)
+  end
+
+  def sign_out(user_id:, connection_name:, channel_id:)
+    @sign_outs << { user_id:, connection_name:, channel_id: }
+    nil
+  end
+end
+
+class FakeBotSignIn
+  attr_reader :states
+
+  def initialize
+    @states = []
+  end
+
+  def sign_in
+    self
+  end
+
+  def get_resource(state:, **)
+    @states << state
+    Teams::Api::SignInUrlResponse.new(
+      "signInLink" => "https://token.botframework.com/signin?state=#{state}",
+      "tokenExchangeResource" => { "id" => "resource-1", "uri" => "api://botid-x/scope" },
+      "tokenPostResource" => { "sasUrl" => "https://token.botframework.com/sas" }
+    )
+  end
+end
+
 class FakeApi
-  attr_reader :service_url, :sent, :replies, :updates, :targeted_sent, :targeted_updates
+  attr_reader :service_url, :sent, :replies, :updates, :targeted_sent, :targeted_updates, :users, :bots
   attr_accessor :send_filter
 
   def initialize(service_url: "https://smba.trafficmanager.net/teams")
@@ -21,6 +67,8 @@ class FakeApi
     @updates = []
     @targeted_sent = []
     @targeted_updates = []
+    @users = FakeUserTokens.new
+    @bots = FakeBotSignIn.new
   end
 
   # The app sends through api.conversations; the fake records on itself so

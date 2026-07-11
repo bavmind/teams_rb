@@ -56,6 +56,14 @@ module Teams
       register("dialog.submit", dialog_selector("task/submit", "action", action), &block)
     end
 
+    def on_signin_token_exchange(&block)
+      register("signin.token-exchange", invoke_selector("signin/tokenExchange"), &block)
+    end
+
+    def on_signin_verify_state(&block)
+      register("signin.verify-state", invoke_selector("signin/verifyState"), &block)
+    end
+
     def on_meeting_start(&block)
       register("meeting_start", event_selector("application/vnd.microsoft.meetingStart"), &block)
     end

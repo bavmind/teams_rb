@@ -1133,6 +1133,72 @@ class AppTest < Minitest::Test
     assert_equal "", last_response.body
   end
 
+  def test_sign_in_returns_existing_token_without_sending_a_card
+    @api.users.token = "existing-user-token"
+    result = nil
+    @teams.on_message { |ctx| result = ctx.sign_in }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "existing-user-token", result
+    assert_empty @api.sent
+    assert_equal "graph", @api.users.token_requests.first[:connection_name]
+  end
+
+  def test_sign_in_sends_oauth_card_when_not_signed_in
+    result = :unset
+    @teams.on_message { |ctx| result = ctx.sign_in(connection_name: "custom") }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_nil result
+    assert_equal 1, @api.sent.size
+
+    outbound = @api.sent.first[1]
+    attachment = outbound["attachments"].first
+    assert_equal "application/vnd.microsoft.card.oauth", attachment["contentType"]
+    card = attachment["content"]
+    assert_equal "custom", card["connectionName"]
+    assert_equal "api://botid-x/scope", card.dig("tokenExchangeResource", "uri")
+    button = card["buttons"].first
+    assert_equal "signin", button["type"]
+    assert_includes button["value"], "https://token.botframework.com/signin"
+    assert_equal "user-1", outbound.dig("recipient", "id")
+
+    state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
+    assert_equal "custom", state["connectionName"]
+    assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_out_clears_token_for_default_connection
+    @teams.on_message { |ctx| ctx.sign_out }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal(
+      [{ user_id: "user-1", connection_name: "graph", channel_id: "msteams" }],
+      @api.users.sign_outs
+    )
+  end
+
+  def test_signin_invoke_routes
+    fired = []
+    @teams.on_signin_token_exchange { |_ctx| fired << :exchange; nil }
+    @teams.on_signin_verify_state { |_ctx| fired << :verify; nil }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "sso-token")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    assert_equal [:exchange], fired
+
+    payload = message_ext_payload("signin/verifyState", "state" => "magic-code")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    assert_equal [:exchange, :verify], fired
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }
