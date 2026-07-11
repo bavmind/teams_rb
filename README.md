@@ -315,6 +315,20 @@ end
 
 `ctx.sign_out` clears the token. Handlers registered on `on_signin_token_exchange` / `on_signin_verify_state` / `on_signin_failure` run after the defaults for custom behavior. The lower-level surface lives on `teams.api.users` (`get_token`, `get_aad_tokens`, `get_token_status`, `sign_out`, `exchange_token`) and `teams.api.bots.sign_in` (`get_url`, `get_resource`) against the Bot Framework token service.
 
+Microsoft Graph is available through a thin request client (following the TypeScript SDK's core Graph client; the generated endpoint packages are not ported — the raw request surface is the API, like TypeScript's `client.http` escape hatch). `teams.graph` / `ctx.app_graph` use the app's own identity (app-only tokens via the client-credentials flow — grant the app *application* permissions in Entra for these). `ctx.user_graph` uses the signed-in user's token and raises if the user hasn't signed in:
+
+```ruby
+teams.on_message(/^whoami$/i) do |ctx|
+  me = ctx.user_graph.get("/me")   # requires prior ctx.sign_in
+  ctx.reply "You are #{me["displayName"]} (#{me["userPrincipalName"]})"
+end
+
+app_info = teams.graph.get("/applications", params: { "$top" => 1 })
+teams.graph.post("/users/#{user_id}/sendMail", json: { message: { subject: "Hi" } })
+```
+
+`get`/`post`/`patch`/`put`/`delete` take a path relative to `/v1.0`, return parsed hashes, and raise `Teams::GraphError` (with `status`, the Graph error `code`, and the full `body`) on failure. Sovereign clouds route automatically from the configured cloud's graph scope.
+
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
 ```ruby

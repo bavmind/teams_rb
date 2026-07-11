@@ -67,6 +67,28 @@ module Teams
       post(Api::TypingActivity.new(text))
     end
 
+    # Microsoft Graph client with the app's own identity (app-only tokens).
+    def app_graph
+      app.graph
+    end
+
+    # Microsoft Graph client with the signed-in user's token. Raises when
+    # the user is not signed in, like the Python SDK's user_graph.
+    def user_graph(connection_name: nil)
+      @user_graph ||= begin
+        response = api.users.get_token(
+          user_id: activity.from.id,
+          connection_name: connection_name || app.default_connection_name,
+          channel_id: activity.channel_id
+        )
+        raise Error, "User must be signed in to access the Graph client" if response.token.to_s.empty?
+
+        Graph::Client.new(token: response.token, base_url_root: app.graph.base_url_root)
+      rescue HttpError
+        raise Error, "User must be signed in to access the Graph client"
+      end
+    end
+
     # Starts the user sign-in flow: returns the token if the user is already
     # signed in, otherwise sends an OAuth card and returns nil. In group
     # conversations the card goes to a 1:1 conversation with the user (group

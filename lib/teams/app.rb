@@ -6,7 +6,7 @@ module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
 
-    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name
+    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph
 
     def client_id
       @token_manager.client_id
@@ -48,6 +48,15 @@ module Teams
         tenant_id: @token_manager.credentials&.tenant_id,
         cloud:
       ) if @token_manager.client_id
+
+      # Graph base URL derives from the cloud's graph scope host (sovereign
+      # clouds), like the TypeScript SDK; the app-identity client requests
+      # app-only tokens through the client-credentials flow.
+      graph_root = cloud.graph_scope.to_s[%r{\Ahttps?://[^/]+}]
+      @graph = Graph::Client.new(
+        token: -> { @token_manager.token_for(cloud.graph_scope, @token_manager.credentials&.tenant_id || cloud.login_tenant) },
+        base_url_root: graph_root
+      )
 
       register_default_oauth_handlers
       warn_missing_credentials

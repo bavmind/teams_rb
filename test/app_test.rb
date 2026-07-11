@@ -1133,6 +1133,26 @@ class AppTest < Minitest::Test
     assert_equal "", last_response.body
   end
 
+  def test_user_graph_requires_sign_in_and_uses_user_token
+    graphs = []
+    @teams.on_message do |ctx|
+      begin
+        ctx.user_graph
+      rescue Teams::Error => error
+        graphs << error.message
+      end
+
+      @api.users.token = "user-graph-token"
+      graphs << ctx.user_graph
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_includes graphs[0], "must be signed in"
+    assert_instance_of Teams::Graph::Client, graphs[1]
+  end
+
   def test_sign_in_returns_existing_token_without_sending_a_card
     @api.users.token = "existing-user-token"
     result = nil

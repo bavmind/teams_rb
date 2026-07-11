@@ -23,6 +23,10 @@ module Teams
         request(:post, path, json:, body:, headers:, params:)
       end
 
+      def patch(path, json: nil, body: nil, headers: {}, params: nil)
+        request(:patch, path, json:, body:, headers:, params:)
+      end
+
       def put(path, json: nil, body: nil, headers: {}, params: nil)
         request(:put, path, json:, body:, headers:, params:)
       end

@@ -49,6 +49,7 @@ require_relative "teams/api/meeting_client"
 require_relative "teams/api/client"
 require_relative "teams/api/message_activity"
 require_relative "teams/api/typing_activity"
+require_relative "teams/graph/client"
 require_relative "teams/rack_app"
 require_relative "teams/app"
 
