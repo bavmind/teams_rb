@@ -849,6 +849,36 @@ class AppTest < Minitest::Test
     assert_empty @api.targeted_sent
   end
 
+  def test_stream_chunk_and_close_events
+    api = FakeApi.new
+    stream = build_stream(api)
+
+    chunks = []
+    closes = []
+    stream.on_chunk { |sent| chunks << sent }
+    stream.on_close { |sent| closes << sent }
+
+    stream.update "Thinking..."
+    stream.emit "Hello"
+    first = stream.close
+
+    assert_equal 2, chunks.length
+    assert(chunks.all? { |sent| sent.is_a?(Teams::Api::SentActivity) })
+    assert_equal "sent-1", chunks.first.id
+    assert_equal [first], closes
+
+    # Idempotent close does not re-fire the close event.
+    stream.close
+    assert_equal 1, closes.length
+
+    # Handlers persist across stream reuse.
+    stream.emit "second cycle"
+    second = stream.close
+
+    assert_equal 3, chunks.length
+    assert_equal [first, second], closes
+  end
+
   def test_typing_accepts_optional_text
     @teams.on_message do |ctx|
       ctx.typing

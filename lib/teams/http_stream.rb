@@ -13,6 +13,22 @@ module Teams
       @result = nil
       @canceled = false
       @timed_out = false
+      @chunk_handlers = []
+      @close_handlers = []
+    end
+
+    # Registers a handler called with the SentActivity of every stream chunk.
+    # Handlers persist across stream reuse.
+    def on_chunk(&handler)
+      @chunk_handlers << handler
+      self
+    end
+
+    # Registers a handler called with the final SentActivity when the stream
+    # closes. Handlers persist across stream reuse.
+    def on_close(&handler)
+      @close_handlers << handler
+      self
     end
 
     def canceled
@@ -89,6 +105,9 @@ module Teams
           send_final
         end
       end
+
+      @close_handlers.each { |handler| handler.call(@result) }
+      @result
     ensure
       reset_state if @result
     end
@@ -169,8 +188,10 @@ module Teams
         return
       end
 
+      sent = Api::SentActivity.merge(body, result)
+      @chunk_handlers.each { |handler| handler.call(sent) }
       @sequence += 1
-      @id ||= extract_id(result)
+      @id ||= sent.id
     end
 
     def final_stream_activity
@@ -286,12 +307,6 @@ module Teams
       Array(body["entities"]).any? do |entity|
         entity.is_a?(Hash) && entity["type"] == "streaminfo"
       end
-    end
-
-    def extract_id(result)
-      return unless result.is_a?(Hash)
-
-      result["id"] || result[:id]
     end
 
     def informative_update?(activity)
