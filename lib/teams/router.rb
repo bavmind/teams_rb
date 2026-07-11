@@ -64,6 +64,10 @@ module Teams
       register("signin.verify-state", invoke_selector("signin/verifyState"), &block)
     end
 
+    def on_signin_failure(&block)
+      register("signin.failure", invoke_selector("signin/failure"), &block)
+    end
+
     def on_meeting_start(&block)
       register("meeting_start", event_selector("application/vnd.microsoft.meetingStart"), &block)
     end

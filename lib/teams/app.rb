@@ -27,6 +27,8 @@ module Teams
       default_connection_name: "graph"
     )
       @default_connection_name = default_connection_name
+      @sign_in_handlers = []
+      @error_handlers = []
       @logger = logger
       @storage = storage
       @cloud = cloud
@@ -47,6 +49,7 @@ module Teams
         cloud:
       ) if @token_manager.client_id
 
+      register_default_oauth_handlers
       warn_missing_credentials
     end
 
@@ -96,7 +99,10 @@ module Teams
     end
 
     # Sign-in invokes: signin/tokenExchange arrives for silent SSO token
-    # exchange, signin/verifyState after interactive OAuth card sign-in.
+    # exchange, signin/verifyState after interactive OAuth card sign-in,
+    # signin/failure when the Teams client reports a failed SSO attempt.
+    # Default handlers registered at construction complete these flows and
+    # fire on_sign_in / on_error; handlers registered here run after them.
     def on_signin_token_exchange(&block)
       @router.on_signin_token_exchange(&block)
       self
@@ -105,6 +111,33 @@ module Teams
     def on_signin_verify_state(&block)
       @router.on_signin_verify_state(&block)
       self
+    end
+
+    def on_signin_failure(&block)
+      @router.on_signin_failure(&block)
+      self
+    end
+
+    # Called with (ctx, token_response) whenever a sign-in completes through
+    # the default token-exchange or verify-state handlers.
+    def on_sign_in(&block)
+      @sign_in_handlers << block
+      self
+    end
+
+    # Called with (error, activity) when a default OAuth handler hits an
+    # unexpected failure or the Teams client reports a sign-in failure.
+    def on_error(&block)
+      @error_handlers << block
+      self
+    end
+
+    def emit_sign_in(context, token_response)
+      @sign_in_handlers.each { |handler| handler.call(context, token_response) }
+    end
+
+    def emit_error(error, activity: nil)
+      @error_handlers.each { |handler| handler.call(error, activity) }
     end
 
     # Meeting start/end events (Teams posts them to bots installed in the
@@ -250,6 +283,105 @@ module Teams
       outbound = normalize_activity(activity_or_text)
       body = outbound.respond_to?(:to_h) ? outbound.to_h : outbound
       body.merge("id" => activity_id)
+    end
+
+    # Default OAuth handlers, mirroring the TypeScript/Python OauthHandlers:
+    # registered first on the signin routes, they complete the flows, fire
+    # the sign-in/error events, and chain to user handlers via next. Their
+    # return value is the invoke response; 412 tells the Teams client to
+    # fall back to the interactive card flow.
+    def register_default_oauth_handlers
+      app = self
+
+      @router.on_signin_token_exchange do |ctx, nxt|
+        value = ctx.activity.value
+        begin
+          if value.raw["connectionName"] != app.default_connection_name
+            app.logger&.warn(
+              "Sign-in token exchange invoked with connection name #{value.raw["connectionName"].inspect}, " \
+              "but the default connection name is #{app.default_connection_name.inspect}. " \
+              "Token verification will likely fail."
+            )
+          end
+
+          begin
+            token = ctx.api.users.exchange_token(
+              user_id: ctx.activity.from.id,
+              connection_name: value.raw["connectionName"],
+              channel_id: ctx.activity.channel_id,
+              exchange_request: { "token" => value.raw["token"] }
+            )
+            app.emit_sign_in(ctx, token)
+            nil
+          rescue HttpError => error
+            unless [404, 400, 412].include?(error.status)
+              app.logger&.error("Error exchanging token: #{error.message}")
+              app.emit_error(error, activity: ctx.activity)
+              next Response.new(status: error.status || 500)
+            end
+
+            Response.new(
+              status: 412,
+              body: {
+                "id" => value.raw["id"],
+                "connectionName" => value.raw["connectionName"],
+                "failureDetail" => error.message
+              }
+            )
+          end
+        ensure
+          nxt.call
+        end
+      end
+
+      @router.on_signin_verify_state do |ctx, nxt|
+        begin
+          state = ctx.activity.value.raw["state"]
+          if state.to_s.empty?
+            app.logger&.warn("Auth state not present on signin/verifyState invoke")
+            next Response.new(status: 404)
+          end
+
+          begin
+            token = ctx.api.users.get_token(
+              user_id: ctx.activity.from.id,
+              connection_name: app.default_connection_name,
+              channel_id: ctx.activity.channel_id,
+              code: state
+            )
+            app.emit_sign_in(ctx, token)
+            nil
+          rescue HttpError => error
+            app.logger&.error("Error verifying sign-in state: #{error.message}")
+            unless [404, 400, 412].include?(error.status)
+              app.emit_error(error, activity: ctx.activity)
+              next Response.new(status: error.status || 500)
+            end
+
+            Response.new(status: 412)
+          end
+        ensure
+          nxt.call
+        end
+      end
+
+      @router.on_signin_failure do |ctx, nxt|
+        begin
+          value = ctx.activity.value
+          app.logger&.warn(
+            "Sign-in failed: #{value.raw["code"]} - #{value.raw["message"]}. " \
+            "If the code is 'resourcematchfailed', verify the Entra app registration's " \
+            "Application ID URI matches the OAuth connection's Token Exchange URL."
+          )
+          app.emit_error(
+            Error.new("Sign-in failure: #{value.raw["code"]} - #{value.raw["message"]}"),
+            activity: ctx.activity
+          )
+          nil
+        ensure
+          nxt.call
+        end
+      end
     end
 
     # The same two startup warnings the TypeScript, Python, and .NET SDKs

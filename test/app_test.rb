@@ -1184,6 +1184,65 @@ class AppTest < Minitest::Test
     )
   end
 
+  def test_default_token_exchange_completes_sso_and_fires_sign_in
+    @api.users.token = "sso-user-token"
+    events = []
+    @teams.on_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [["signin/tokenExchange", "sso-user-token"]], events
+    assert_equal "exchangeable", @api.users.exchanges.first[:exchange_request]["token"]
+  end
+
+  def test_default_token_exchange_returns_412_when_exchange_fails
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "bad")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 412, last_response.status
+    body = JSON.parse(last_response.body)
+    assert_equal "exchange-1", body["id"]
+    assert_equal "graph", body["connectionName"]
+    assert body["failureDetail"]
+  end
+
+  def test_default_verify_state_completes_sign_in
+    @api.users.token = "interactive-token"
+    events = []
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+
+    payload = message_ext_payload("signin/verifyState", "state" => "123456")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["interactive-token"], events
+    assert_equal "123456", @api.users.token_requests.first[:code]
+  end
+
+  def test_default_verify_state_without_state_returns_404
+    payload = message_ext_payload("signin/verifyState", {})
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 404, last_response.status
+  end
+
+  def test_signin_failure_fires_error_handler
+    errors = []
+    @teams.on_error { |error, activity| errors << [error.message, activity.name] }
+
+    payload = message_ext_payload("signin/failure", "code" => "resourcematchfailed", "message" => "URI mismatch")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, errors.length
+    assert_includes errors.first[0], "resourcematchfailed"
+    assert_equal "signin/failure", errors.first[1]
+  end
+
   def test_signin_invoke_routes
     fired = []
     @teams.on_signin_token_exchange { |_ctx| fired << :exchange; nil }

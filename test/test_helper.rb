@@ -33,6 +33,20 @@ class FakeUserTokens
     @sign_outs << { user_id:, connection_name:, channel_id: }
     nil
   end
+
+  def exchange_token(user_id:, connection_name:, channel_id:, exchange_request:)
+    @exchanges ||= []
+    @exchanges << { user_id:, connection_name:, channel_id:, exchange_request: }
+    unless @token
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::TokenResponse.new("connectionName" => connection_name, "token" => @token)
+  end
+
+  def exchanges
+    @exchanges ||= []
+  end
 end
 
 class FakeBotSignIn

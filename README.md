@@ -293,7 +293,7 @@ teams.on_message_ext_query_link do |ctx|
 end
 ```
 
-User sign-in (OAuth) needs an OAuth connection configured on the bot's Azure registration. `ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card (to a 1:1 conversation when invoked from a group chat) and returns `nil` — the token then arrives on the sign-in invokes:
+User sign-in (OAuth) needs an OAuth connection configured on the bot's Azure registration (name it to match `default_connection_name`, default `"graph"`). `ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card (to a 1:1 conversation when invoked from a group chat) and returns `nil`. The SDK's default handlers then complete the sign-in invokes — token exchange for silent SSO, verify-state for the interactive card — and hand the token to `on_sign_in`:
 
 ```ruby
 teams = Teams::App.new(default_connection_name: "graph")
@@ -303,25 +303,17 @@ teams.on_message(/^login$/i) do |ctx|
   ctx.reply "Already signed in!" if token
 end
 
-teams.on_signin_verify_state do |ctx|
-  token = ctx.api.users.get_token(
-    user_id: ctx.activity.from.id, connection_name: "graph",
-    channel_id: ctx.activity.channel_id, code: ctx.activity.value.raw["state"]
-  )
-  ctx.post "Signed in as token holder." if token.token
+teams.on_sign_in do |ctx, token|
+  ctx.post "Welcome! You are signed in."
+  # token.token is the user's access token for the connection's scopes
 end
 
-teams.on_signin_token_exchange do |ctx|
-  value = ctx.activity.value
-  token = ctx.api.users.exchange_token(
-    user_id: ctx.activity.from.id, connection_name: value.raw["connectionName"],
-    channel_id: ctx.activity.channel_id, exchange_request: { token: value.raw["token"] }
-  )
-  ctx.post "SSO sign-in complete." if token.token
+teams.on_error do |error, activity|
+  # unexpected OAuth failures and client-reported sign-in failures
 end
 ```
 
-`ctx.sign_out` clears the token. The lower-level surface lives on `teams.api.users` (`get_token`, `get_aad_tokens`, `get_token_status`, `sign_out`, `exchange_token`) and `teams.api.bots.sign_in` (`get_url`, `get_resource`) against the Bot Framework token service.
+`ctx.sign_out` clears the token. Handlers registered on `on_signin_token_exchange` / `on_signin_verify_state` / `on_signin_failure` run after the defaults for custom behavior. The lower-level surface lives on `teams.api.users` (`get_token`, `get_aad_tokens`, `get_token_status`, `sign_out`, `exchange_token`) and `teams.api.bots.sign_in` (`get_url`, `get_resource`) against the Bot Framework token service.
 
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
