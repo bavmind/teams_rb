@@ -14,6 +14,14 @@ module Teams
       def conversations
         @conversations ||= ConversationClient.new(service_url:, http:, logger: @logger)
       end
+
+      def teams
+        @teams ||= TeamClient.new(service_url:, http:, logger: @logger)
+      end
+
+      def meetings
+        @meetings ||= MeetingClient.new(service_url:, http:, logger: @logger)
+      end
     end
   end
 end

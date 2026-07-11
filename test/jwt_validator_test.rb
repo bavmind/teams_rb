@@ -130,7 +130,7 @@ class JwtValidatorTest < Minitest::Test
   end
 
   def test_rejects_token_signed_with_wrong_key
-    rsa, kid, cloud, http = validator_parts
+    _rsa, kid, cloud, http = validator_parts
     other_rsa = OpenSSL::PKey::RSA.generate(2048)
     # Signed by a different key, but claiming the kid of the published JWK.
     token = JwtTestHelper.token(rsa: other_rsa, kid:, payload: valid_payload)

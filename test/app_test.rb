@@ -433,7 +433,11 @@ class AppTest < Minitest::Test
 
   def test_stream_emits_cumulative_typing_chunks_and_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "Hello"
+      # Wait for the first chunk to ship so the second emit lands in a
+      # separate flush cycle, making the chunk boundary deterministic.
+      wait_until { @api.sent.size == 1 }
       ctx.stream.emit ", world"
     end
 
@@ -469,6 +473,7 @@ class AppTest < Minitest::Test
 
   def test_stream_update_sends_informative_chunk_before_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.update "Thinking..."
       ctx.stream.emit "Hello"
     end
@@ -499,6 +504,7 @@ class AppTest < Minitest::Test
 
   def test_stream_update_without_message_does_not_send_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.update "Thinking..."
     end
 
@@ -512,14 +518,18 @@ class AppTest < Minitest::Test
 
   def test_stream_final_message_can_add_ai_generated_label
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "Hello"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.emit Teams::Api::MessageActivity.new.add_ai_generated
     end
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 2, @api.sent.size
+    # The second flush cycle contains a message emit, so the accumulated
+    # text ships again as a chunk before the final, like TypeScript/Python.
+    assert_equal 3, @api.sent.size
     assert_equal 0, @api.updates.size
 
     final = @api.sent.last[1]
@@ -537,8 +547,13 @@ class AppTest < Minitest::Test
     )
   end
 
-  def test_stream_final_attachment_without_text_omits_text
+  # A card-only stream never sends a chunk, so no stream id is assigned and
+  # close sends nothing, matching TypeScript/Python (their close returns
+  # early with no content). Card finals belong after text chunks, via
+  # clear_text if needed.
+  def test_stream_card_only_emit_sends_nothing
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit(
         Teams::Api::MessageActivity.new.add_card(
           "type" => "AdaptiveCard",
@@ -548,24 +563,21 @@ class AppTest < Minitest::Test
           ]
         )
       )
+      wait_for_stream_idle(ctx.stream)
     end
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-
-    final = @api.sent.last[1]
-
-    assert_equal "message", final["type"]
-    refute final.key?("text")
-    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
-    assert_equal "final", final.dig("channelData", "streamType")
+    assert_empty @api.sent
+    assert_empty @api.updates
   end
 
   def test_stream_clear_text_discards_accumulated_text_before_card_final
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "discard this"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.clear_text
       ctx.stream.emit(
         Teams::Api::MessageActivity.new.add_card(
@@ -594,7 +606,9 @@ class AppTest < Minitest::Test
 
   def test_stream_clear_text_allows_later_text
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "discard this"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.clear_text
       ctx.stream.emit "keep this"
     end
@@ -608,6 +622,8 @@ class AppTest < Minitest::Test
     assert_equal "keep this", @api.sent[2][1]["text"]
   end
 
+  # Chunk-send errors are classified and swallowed on the flusher thread, so
+  # the mapping surfaces through close's final send, like TypeScript/Python.
   def test_stream_maps_403_error_messages_to_typed_errors
     {
       "Content stream was canceled by user." => Teams::StreamCancelledError,
@@ -617,10 +633,11 @@ class AppTest < Minitest::Test
       "Request streamed content should contain the previously streamed content" => Teams::TerminalStreamError
     }.each do |message, expected|
       api = FakeApi.new
-      api.send_filter = ->(_payload) { raise stream_http_error(message) }
+      api.send_filter = ->(payload) { raise stream_http_error(message) if payload["type"] == "message" }
       stream = build_stream(api)
 
-      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.emit "hi" }
+      stream.emit "hi"
+      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.close }
       assert_instance_of expected, error, "wrong error class for #{message.inspect}"
       assert_equal message, error.message
     end
@@ -628,19 +645,21 @@ class AppTest < Minitest::Test
 
   def test_stream_403_with_empty_body_maps_to_terminal_error
     api = FakeApi.new
-    api.send_filter = ->(_payload) { raise stream_http_error }
+    api.send_filter = ->(payload) { raise stream_http_error if payload["type"] == "message" }
     stream = build_stream(api)
 
-    error = assert_raises(Teams::TerminalStreamError) { stream.emit "hi" }
+    stream.emit "hi"
+    error = assert_raises(Teams::TerminalStreamError) { stream.close }
     assert_instance_of Teams::TerminalStreamError, error
   end
 
   def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
     api = FakeApi.new
-    api.send_filter = ->(_payload) { raise stream_http_error("Content stream is not allowed") }
+    api.send_filter = ->(payload) { raise stream_http_error("Content stream is not allowed") if payload["type"] == "message" }
     stream = build_stream(api)
 
-    assert_raises(Teams::StreamNotAllowedError) { stream.emit "hi" }
+    stream.emit "hi"
+    assert_raises(Teams::StreamNotAllowedError) { stream.close }
     refute stream.canceled
     refute stream.timed_out
   end
@@ -650,8 +669,10 @@ class AppTest < Minitest::Test
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
     stream = build_stream(api)
 
-    assert_raises(Teams::StreamCancelledError) { stream.emit "hi" }
-    assert stream.canceled
+    # The cancelling 403 lands on the flusher thread and is swallowed there;
+    # the sticky flag is the observable, like TypeScript/Python.
+    stream.emit "hi"
+    wait_until { stream.canceled }
     assert_nil stream.close
 
     api.send_filter = nil
@@ -664,10 +685,11 @@ class AppTest < Minitest::Test
     stream = build_stream(api)
 
     stream.emit "Hello"
+    wait_until { api.sent.size == 1 }
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream finished due to exceeded streaming time.") }
     stream.emit ", world"
 
-    assert stream.timed_out
+    wait_until { stream.timed_out }
     api.send_filter = nil
 
     result = stream.close
@@ -924,7 +946,28 @@ class AppTest < Minitest::Test
     teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
     activity = Teams::Activity.new(teams_payload)
     conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
-    Teams::HttpStream.new(app: teams, conversation_reference:)
+    fast_stream(Teams::HttpStream.new(app: teams, conversation_reference:))
+  end
+
+  # Shrinks the stream's flush/poll intervals so tests exercising the
+  # background flusher stay fast.
+  def fast_stream(stream)
+    stream.instance_variable_set(:@flush_interval, 0.01)
+    stream.instance_variable_set(:@poll_interval, 0.005)
+    stream.instance_variable_set(:@total_wait_timeout, 2)
+    stream
+  end
+
+  def wait_until(timeout: 2)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+    until yield
+      flunk "timed out waiting for condition" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+      sleep 0.005
+    end
+  end
+
+  def wait_for_stream_idle(stream)
+    wait_until { stream.count.zero? && !stream.instance_variable_get(:@flushing) }
   end
 
   def stream_http_error(message = nil)

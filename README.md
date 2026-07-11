@@ -111,6 +111,18 @@ teams.api.conversations.get_activity_members(conversation_id, activity_id)
 
 Use `get_paged_members` for large rosters: pass the result's `continuation_token` back in until it returns `nil`.
 
+Team and meeting lookups follow the same client shape:
+
+```ruby
+teams.api.teams.get_by_id(team_id)            # => Teams::Api::TeamDetails
+teams.api.teams.get_conversations(team_id)    # => [Teams::Api::ChannelInfo] (the team's channels)
+teams.api.meetings.get_by_id(meeting_id)      # => Teams::Api::MeetingInfo
+teams.api.meetings.get_participant(meeting_id, aad_object_id, tenant_id)
+teams.api.meetings.send_notification(meeting_id, { value: { recipients: [aad_object_id], surfaces: [{ surface: "meetingStage", contentType: "task", content: { ... } }] } })
+```
+
+`send_notification` returns `nil` when every recipient was notified (HTTP 202) and a `Teams::Api::MeetingNotificationResponse` with `recipients_failure_info` on partial success (HTTP 207).
+
 For modeled Ruby object access, use snake_case field names:
 
 ```ruby
@@ -210,7 +222,7 @@ ctx.stream.on_chunk { |sent| logger.debug("chunk #{sent.id}") }
 ctx.stream.on_close { |sent| MessageLog.record(sent.id) }
 ```
 
-Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels, and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place.
+Emits are queued and flushed by a background thread, matching the TypeScript and Python streamers: rapid emits coalesce into fewer chunks (spaced to respect Teams rate limits), transient send failures retry with backoff, and `close` waits for the queue to drain before sending the final message. Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels (sets the sticky `canceled` flag and makes the next `emit` raise), and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures — chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place. Note that a card-only stream (no text ever emitted) sends nothing, like the other SDKs: emit text chunks first, then `clear_text` and emit the card as the final message.
 
 To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
 
