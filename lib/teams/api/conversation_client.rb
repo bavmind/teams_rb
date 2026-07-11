@@ -13,6 +13,7 @@ module Teams
         @service_url = service_url.sub(%r{/+\z}, "")
         @http = http
         @logger = logger
+        @reactions = ReactionClient.new(service_url: @service_url, http:)
       end
 
       # Creates a conversation (or returns the pre-existing one for the same
@@ -126,9 +127,7 @@ module Teams
 
       private
 
-      def reactions
-        @reactions ||= ReactionClient.new(service_url:, http:)
-      end
+      attr_reader :reactions
 
       def account_to_h(account)
         account.is_a?(Hash) ? Common::Hashes.deep_stringify_keys(account) : account.to_h

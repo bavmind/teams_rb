@@ -218,6 +218,11 @@ module Teams
 
     def run_handlers(context)
       routes = @router.matching(context.activity)
+      activity = context.activity
+      logger&.debug(
+        "Teams inbound #{activity.type}#{activity.name ? " #{activity.name}" : ""} " \
+        "id=#{activity.id} matched #{routes.length} route(s)"
+      )
       index = -1
       next_handler = nil
       next_handler = lambda do

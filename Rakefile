@@ -7,6 +7,14 @@ end
 
 task default: :test
 
+desc "Run the test suite and build the gem (CI gate)"
+task ci: :test do
+  require "tmpdir"
+  Dir.mktmpdir("teams_rb-ci") do |dir|
+    sh "gem", "build", "teams_rb.gemspec", "--output", File.join(dir, "teams_rb-ci.gem")
+  end
+end
+
 namespace :cards do
   desc "Regenerate Teams::Cards from the teams.py card models. " \
        "Looks for a teams.py checkout next to this repository; " \

@@ -69,6 +69,29 @@ class TokenManagerTest < Minitest::Test
     assert_equal 2, http.posts.size
   end
 
+  def test_concurrent_bot_token_requests_fetch_once
+    token_url = "https://login.microsoftonline.com/tenant/oauth2/v2.0/token"
+    token = unsigned_token(exp: Time.now.to_i + 3600)
+    http = FakeHttp.new(
+      token_url => lambda do
+        # Widen the race window so unsynchronized threads would stampede.
+        sleep 0.02
+        { "access_token" => token }
+      end
+    )
+    manager = Teams::Auth::TokenManager.from_env(
+      client_id: "client-id",
+      client_secret: "secret",
+      tenant_id: "tenant",
+      http:
+    )
+
+    results = Array.new(8) { Thread.new { manager.bot_token } }.map(&:value)
+
+    assert(results.all? { |value| value == token })
+    assert_equal 1, http.posts.size
+  end
+
   def test_requires_credentials
     manager = Teams::Auth::TokenManager.from_env(client_id: nil, client_secret: nil, tenant_id: nil)
 

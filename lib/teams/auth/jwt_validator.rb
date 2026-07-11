@@ -13,6 +13,9 @@ module Teams
         @cloud = cloud
         @http = http || Common::HttpClient.new
         @jwks = {}
+        # The validator is shared across request threads; the mutex keeps
+        # concurrent cold-cache requests from fetching the JWKS repeatedly.
+        @jwks_mutex = Mutex.new
       end
 
       def validate!(authorization_header, service_url: nil)
@@ -85,7 +88,7 @@ module Teams
         payload = JSON.parse(Base64.urlsafe_decode64(pad(payload_segment)))
         uri = jwks_uri_for_issuer(payload["iss"])
 
-        @jwks[uri] ||= @http.get(uri)
+        @jwks_mutex.synchronize { @jwks[uri] ||= @http.get(uri) }
       rescue JSON::ParserError, ArgumentError
         raise AuthenticationError, "JWT is malformed"
       end
@@ -98,9 +101,11 @@ module Teams
       end
 
       def bot_framework_jwks_uri
-        @bot_framework_jwks_uri ||= begin
-          metadata = @http.get(@cloud.open_id_metadata_url)
-          metadata.fetch("jwks_uri")
+        @jwks_mutex.synchronize do
+          @bot_framework_jwks_uri ||= begin
+            metadata = @http.get(@cloud.open_id_metadata_url)
+            metadata.fetch("jwks_uri")
+          end
         end
       end
 

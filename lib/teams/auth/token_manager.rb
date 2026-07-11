@@ -12,6 +12,10 @@ module Teams
         @cloud = cloud
         @http = http || Common::HttpClient.new
         @tokens = {}
+        # One app-wide manager is shared across request threads; the mutex
+        # prevents concurrent refreshes of the same token (the other SDKs
+        # get this from MSAL, which locks internally).
+        @mutex = Mutex.new
       end
 
       def self.from_env(
@@ -37,25 +41,27 @@ module Teams
       end
 
       def token_for(scope, tenant_id)
-        cached = @tokens[[scope, tenant_id]]
-        return cached.value if cached && !cached.expired?
+        @mutex.synchronize do
+          cached = @tokens[[scope, tenant_id]]
+          return cached.value if cached && !cached.expired?
 
-        raise ConfigurationError, "CLIENT_ID and CLIENT_SECRET are required" unless credentials
+          raise ConfigurationError, "CLIENT_ID and CLIENT_SECRET are required" unless credentials
 
-        response = http.post(
-          "#{cloud.login_endpoint}/#{tenant_id}/oauth2/v2.0/token",
-          body: URI.encode_www_form(
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            scope:,
-            grant_type: "client_credentials"
-          ),
-          headers: { "Content-Type" => "application/x-www-form-urlencoded" }
-        )
+          response = http.post(
+            "#{cloud.login_endpoint}/#{tenant_id}/oauth2/v2.0/token",
+            body: URI.encode_www_form(
+              client_id: credentials.client_id,
+              client_secret: credentials.client_secret,
+              scope:,
+              grant_type: "client_credentials"
+            ),
+            headers: { "Content-Type" => "application/x-www-form-urlencoded" }
+          )
 
-        access_token = response.fetch("access_token")
-        @tokens[[scope, tenant_id]] = Token.new(access_token)
-        access_token
+          access_token = response.fetch("access_token")
+          @tokens[[scope, tenant_id]] = Token.new(access_token)
+          access_token
+        end
       end
     end
   end
