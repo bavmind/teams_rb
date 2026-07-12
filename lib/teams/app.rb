@@ -187,7 +187,11 @@ module Teams
       end
 
       result = handler.call(context)
-      Response.new(status: 200, body: result.respond_to?(:to_h) ? result.to_h : result)
+      body = result.respond_to?(:to_h) ? result.to_h : result
+      # Function responses always carry valid JSON: callers fetch and parse
+      # them, so a nil handler return becomes an empty object rather than an
+      # empty body with a JSON content type.
+      Response.new(status: 200, body: body.nil? ? {} : body)
     end
 
     # Meeting start/end events (Teams posts them to bots installed in the

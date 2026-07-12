@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    teams_rb (2.0.0)
+    teams_rb (2.0.1)
       base64 (~> 0.3)
       faraday (~> 2.14)
       rack (~> 3.2)
@@ -54,7 +54,7 @@ CHECKSUMS
   rack (3.2.6) sha256=5ed78e1f73b2e25679bec7d45ee2d4483cc4146eb1be0264fc4d94cb5ef212c2
   rack-test (2.2.0) sha256=005a36692c306ac0b4a9350355ee080fd09ddef1148a5f8b2ac636c720f5c463
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
-  teams_rb (2.0.0)
+  teams_rb (2.0.1)
   uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6
 
 BUNDLED WITH

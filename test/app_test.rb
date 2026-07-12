@@ -1153,6 +1153,24 @@ class AppTest < Minitest::Test
     assert_instance_of Teams::Graph::Client, graphs[1]
   end
 
+  def test_user_graph_caches_per_connection_name
+    clients = []
+    @teams.on_message do |ctx|
+      @api.users.token = "user-graph-token"
+      clients << ctx.user_graph
+      clients << ctx.user_graph                                # memoized
+      clients << ctx.user_graph(connection_name: "other")      # separate connection
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_same clients[0], clients[1]
+    refute_same clients[0], clients[2]
+    # Three calls, two token fetches: the memoized repeat costs nothing.
+    assert_equal %w[graph other], @api.users.token_requests.map { |r| r[:connection_name] }.last(2)
+  end
+
   def test_sign_in_returns_existing_token_without_sending_a_card
     @api.users.token = "existing-user-token"
     result = nil

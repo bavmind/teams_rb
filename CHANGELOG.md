@@ -6,6 +6,15 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-13
+
+### Fixed
+
+- `ctx.user_graph` now caches per connection name; requesting a different `connection_name:` returns a client for that connection instead of the first one fetched
+- Remote function handlers returning `nil` now serialize as `{}`, keeping function responses valid JSON for `fetch(...).json()` callers
+- Stream sequence/id updates are written under the stream mutex so `close` reliably observes the assigned stream id on non-GIL Ruby implementations
+- Documented (in code) that the group-chat sign-in notice is deliberately posted to the group while the OAuth card goes to the 1:1 conversation, matching the TypeScript and Python SDKs
+
 ## [2.0.0] - 2026-07-13
 
 Initial release. A Ruby-native port of the Microsoft Teams SDK concepts, verified
@@ -33,5 +42,6 @@ the Python SDK made when it joined the family.
 - Thread-safe token management, storage, and JWKS caching for multi-threaded Rack servers
 - Documentation mirroring the official teams-sdk docs structure (getting started, essentials, in-depth guides)
 
-[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/bavmind/teams_rb/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bavmind/teams_rb/releases/tag/v2.0.0
