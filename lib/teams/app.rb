@@ -128,6 +128,18 @@ module Teams
       self
     end
 
+    # message/submitAction invokes; on_message_submit_feedback filters to
+    # feedback-loop submissions (thumbs up/down from add_feedback).
+    def on_message_submit(&block)
+      @router.on_message_submit(&block)
+      self
+    end
+
+    def on_message_submit_feedback(&block)
+      @router.on_message_submit_feedback(&block)
+      self
+    end
+
     # Called with (ctx, token_response) whenever a sign-in completes through
     # the default token-exchange or verify-state handlers.
     def on_sign_in(&block)

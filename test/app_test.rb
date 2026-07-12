@@ -1278,6 +1278,38 @@ class AppTest < Minitest::Test
     assert_equal [:exchange, :verify], fired
   end
 
+  def test_message_submit_feedback_routes_only_feedback_submissions
+    fired = []
+    @teams.on_message_submit_feedback { |ctx| fired << ctx.activity.value.raw.dig("actionValue", "reaction"); nil }
+
+    payload = message_ext_payload(
+      "message/submitAction",
+      "actionName" => "feedback",
+      "actionValue" => { "reaction" => "like", "feedback" => "{\"feedbackText\":\"great\"}" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["like"], fired
+
+    payload = message_ext_payload("message/submitAction", "actionName" => "other")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal ["like"], fired, "non-feedback submissions must not match the feedback route"
+  end
+
+  def test_message_submit_routes_any_submit_action
+    fired = []
+    @teams.on_message_submit { |ctx| fired << ctx.activity.value.raw["actionName"]; nil }
+
+    post "/api/messages", JSON.generate(message_ext_payload("message/submitAction", "actionName" => "feedback")),
+      { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(message_ext_payload("message/submitAction", "actionName" => "other")),
+      { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal %w[feedback other], fired
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }

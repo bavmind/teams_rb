@@ -68,6 +68,20 @@ module Teams
       register("signin.failure", invoke_selector("signin/failure"), &block)
     end
 
+    def on_message_submit(&block)
+      register("message.submit", invoke_selector("message/submitAction"), &block)
+    end
+
+    # message/submitAction invokes whose actionName is "feedback" - the
+    # submissions from add_feedback's thumbs up/down UI.
+    def on_message_submit_feedback(&block)
+      selector = lambda do |activity|
+        activity.invoke? && activity.name == "message/submitAction" &&
+          activity.raw.dig("value", "actionName") == "feedback"
+      end
+      register("message.submit.feedback", selector, &block)
+    end
+
     def on_meeting_start(&block)
       register("meeting_start", event_selector("application/vnd.microsoft.meetingStart"), &block)
     end

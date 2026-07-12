@@ -1,17 +1,30 @@
 # teams_rb
 
-Ruby SDK for receiving and sending Microsoft Teams bot messages from Rack/Rails apps.
+A Ruby-native port of the Microsoft Teams SDKs ([TypeScript](https://microsoft.github.io/teams-sdk/typescript/getting-started), [Python](https://microsoft.github.io/teams-sdk/python/getting-started), [C#](https://microsoft.github.io/teams-sdk/csharp/getting-started)) for building Teams bots and apps from Rack/Rails.
 
-This first MVP targets the production message-bot path:
+> **Unofficial.** `teams_rb` is an independent, community-maintained project. It is not affiliated with, endorsed by, or sponsored by Microsoft. The official Teams SDKs (TypeScript, Python, C#) are developed by Microsoft at [github.com/microsoft/teams-sdk](https://github.com/microsoft/teams-sdk). "Microsoft", "Microsoft Teams", and "Microsoft 365" are trademarks of the Microsoft group of companies.
 
-- Rack endpoint for Teams messages
-- Inbound Teams request validation enabled by default
-- Message routing with `on_message`
-- Replies, updates, and proactive sends through the Teams API
-- Faraday HTTP client
-- Minitest test suite
+It preserves the Teams SDK concepts and wire behavior while using Ruby idioms for the public API, and versions alongside the Teams SDK v2 generation it ports. Every capability is verified against all three upstream SDKs and live-tested in Teams:
 
-Current live status: receiving a Teams message and replying through Bot Framework has been verified with a Dev Tunnel and Microsoft Teams install.
+- Message routing, middleware, and the activity context
+- Sending: post, reply, quote, update, typing, formatting, mentions, sensitivity labels, citations
+- Proactive messaging and conversation creation
+- The full API client — conversations, teams, meetings, users, bot sign-in
+- Adaptive Cards (all 112 element classes, generated from the SDK card model)
+- Dialogs, message extensions, streaming, meeting events
+- OAuth user sign-in and Microsoft Graph (app and user identity)
+- Tabs and remote functions
+- Inbound JWT validation, bot token management, thread-safe by design
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md), structured like the official SDK docs:
+
+- **[Getting started](docs/getting-started/README.md)** — quickstart, code basics, running in Teams
+- **[Essentials](docs/essentials/README.md)** — app, activities, sending, proactive, API client, auth, Graph
+- **[In-depth guides](docs/in-depth-guides/README.md)** — cards, dialogs, message extensions, streaming, user auth, tabs
+
+The rest of this file is a condensed reference; the docs are the primary source.
 
 ## Local Usage
 
@@ -479,7 +492,7 @@ If the tunnel URL is stable (Dev Tunnels URLs are), steps 1–3 are one-time set
 
 | Surface | Methods |
 |---|---|
-| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_message_ext_*` (nine composeExtension routes), `on_meeting_start`, `on_meeting_end`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
+| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_message_ext_*` (nine composeExtension routes), `on_meeting_start`, `on_meeting_end`, `on_message_submit_feedback`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
 | Context (`ctx`) | `activity`, `ref` / `conversation_reference`, `post`, `reply`, `quote(message_id, ...)`, `update(activity_id, ...)`, `typing(text = nil)`, `stream` (`emit`, `update`, `clear_text`, `close`, `on_chunk`, `on_close`), `api`, `storage`, `log` |
 | Proactive (`teams`) | `post(conversation_id, activity)`, `reply(conversation_id, activity_id, activity)`, `update(conversation_id, activity_id, activity)`, `send_activity(reference, activity)` |
 | API client (`teams.api`) | `conversations` (`create`, `create_activity`, `reply_to_activity`, `update_activity`, `delete_activity`, targeted variants, `get_members`, `get_member_by_id`, `get_paged_members`, `get_activity_members`, `add_reaction`, `delete_reaction`), `teams` (`get_by_id`, `get_conversations`), `meetings` (`get_by_id`, `get_participant`, `send_notification`) |

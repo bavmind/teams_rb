@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    teams_rb (0.1.0)
+    teams_rb (2.0.0)
       base64 (~> 0.3)
       faraday (~> 2.14)
       rack (~> 3.2)
@@ -42,20 +42,20 @@ DEPENDENCIES
   teams_rb!
 
 CHECKSUMS
-  base64 (0.3.0)
-  drb (2.2.3)
-  faraday (2.14.1)
-  faraday-net_http (3.4.2)
-  json (2.19.4)
-  logger (1.7.0)
-  minitest (6.0.4)
-  net-http (0.9.1)
-  prism (1.9.0)
-  rack (3.2.6)
-  rack-test (2.2.0)
-  rake (13.4.2)
-  teams_rb (0.1.0)
-  uri (1.1.1)
+  base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
+  drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
+  faraday (2.14.1) sha256=a43cceedc1e39d188f4d2cdd360a8aaa6a11da0c407052e426ba8d3fb42ef61c
+  faraday-net_http (3.4.2) sha256=f147758260d3526939bf57ecf911682f94926a3666502e24c69992765875906c
+  json (2.19.4) sha256=670a7d333fb3b18ca5b29cb255eb7bef099e40d88c02c80bd42a3f30fe5239ac
+  logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
+  minitest (6.0.4) sha256=df1304664589d40f46089247fdc451f866b0ce0d7cae1457a15fc1eb7d48dca1
+  net-http (0.9.1) sha256=25ba0b67c63e89df626ed8fac771d0ad24ad151a858af2cc8e6a716ca4336996
+  prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
+  rack (3.2.6) sha256=5ed78e1f73b2e25679bec7d45ee2d4483cc4146eb1be0264fc4d94cb5ef212c2
+  rack-test (2.2.0) sha256=005a36692c306ac0b4a9350355ee080fd09ddef1148a5f8b2ac636c720f5c463
+  rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
+  teams_rb (2.0.0)
+  uri (1.1.1) sha256=379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6
 
 BUNDLED WITH
   4.0.10
