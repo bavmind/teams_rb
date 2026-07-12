@@ -19,7 +19,6 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 4.0.0"
 
   spec.metadata = {
-    "homepage_uri" => spec.homepage,
     "source_code_uri" => spec.homepage,
     "documentation_uri" => "#{spec.homepage}/tree/main/docs",
     "changelog_uri" => "#{spec.homepage}/blob/main/CHANGELOG.md",

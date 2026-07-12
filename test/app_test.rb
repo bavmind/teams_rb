@@ -425,7 +425,7 @@ class AppTest < Minitest::Test
   end
 
   def test_auth_is_required_by_default
-    @teams = Teams::App.new(api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant")
+    @teams = Teams::App.new(api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: @logger)
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert_equal 401, last_response.status
