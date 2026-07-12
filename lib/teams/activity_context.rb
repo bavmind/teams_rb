@@ -75,10 +75,12 @@ module Teams
     # Microsoft Graph client with the signed-in user's token. Raises when
     # the user is not signed in, like the Python SDK's user_graph.
     def user_graph(connection_name: nil)
-      @user_graph ||= begin
+      connection = connection_name || app.default_connection_name
+      @user_graph ||= {}
+      @user_graph[connection] ||= begin
         response = api.users.get_token(
           user_id: activity.from.id,
-          connection_name: connection_name || app.default_connection_name,
+          connection_name: connection,
           channel_id: activity.channel_id
         )
         raise Error, "User must be signed in to access the Graph client" if response.token.to_s.empty?
@@ -114,6 +116,9 @@ module Teams
           tenant_id: activity.conversation.tenant_id
         )
         conversation_id = one_on_one.id
+        # Deliberately posts the plain text notice into the group (matching
+        # TypeScript and Python): group chats don't support SSO, so the card
+        # itself goes to the 1:1 below while the group sees only the notice.
         post(oauth_card_text)
       end
 

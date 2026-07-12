@@ -425,7 +425,7 @@ class AppTest < Minitest::Test
   end
 
   def test_auth_is_required_by_default
-    @teams = Teams::App.new(api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant")
+    @teams = Teams::App.new(api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: @logger)
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert_equal 401, last_response.status
@@ -1151,6 +1151,24 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_includes graphs[0], "must be signed in"
     assert_instance_of Teams::Graph::Client, graphs[1]
+  end
+
+  def test_user_graph_caches_per_connection_name
+    clients = []
+    @teams.on_message do |ctx|
+      @api.users.token = "user-graph-token"
+      clients << ctx.user_graph
+      clients << ctx.user_graph                                # memoized
+      clients << ctx.user_graph(connection_name: "other")      # separate connection
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_same clients[0], clients[1]
+    refute_same clients[0], clients[2]
+    # Three calls, two token fetches: the memoized repeat costs nothing.
+    assert_equal %w[graph other], @api.users.token_requests.map { |r| r[:connection_name] }.last(2)
   end
 
   def test_sign_in_returns_existing_token_without_sending_a_card

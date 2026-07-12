@@ -66,7 +66,7 @@ module Teams
     end
 
     def sequence
-      @sequence
+      @mutex.synchronize { @sequence }
     end
 
     def emit(activity_or_text)
@@ -275,8 +275,12 @@ module Teams
 
       sent = Api::SentActivity.merge(body, result)
       @chunk_handlers.each { |handler| handler.call(sent) }
-      @sequence += 1
-      @id ||= sent.id
+      # close's wait loop reads @id under the mutex; write under it too so
+      # the assignment is visible on non-GIL Ruby implementations.
+      @mutex.synchronize do
+        @sequence += 1
+        @id ||= sent.id
+      end
     end
 
     def final_stream_activity

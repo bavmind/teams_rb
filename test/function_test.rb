@@ -112,6 +112,7 @@ class FunctionTest < Minitest::Test
 
     call_function("where", headers: { "HTTP_X_TEAMS_CHAT_ID" => "chat-1" })
     assert_equal "chat-1", resolved
+    assert_equal "{}", last_response.body, "nil handler returns must serialize as valid JSON"
 
     @api.member_missing = true
     call_function("where", headers: { "HTTP_X_TEAMS_CHAT_ID" => "chat-1" })
