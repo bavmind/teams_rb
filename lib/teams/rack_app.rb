@@ -9,8 +9,17 @@ module Teams
       @app = app
     end
 
+    FUNCTION_PATH = %r{\A/api/functions/([^/]+)\z}
+
     def call(env)
       request = Rack::Request.new(env)
+
+      if request.post? && (function = FUNCTION_PATH.match(request.path_info))
+        body = request.body.read
+        payload = body.empty? ? {} : JSON.parse(body)
+        return rack_response(@app.process_function(function[1], payload, env:))
+      end
+
       return not_found unless request.post? && request.path_info == @app.messaging_endpoint
 
       body = request.body.read
@@ -18,8 +27,10 @@ module Teams
       response = @app.process_inbound(payload, env:)
       rack_response(response)
     rescue JSON::ParserError
+      @app.logger.warn("Rejected Teams request: invalid JSON body")
       rack_response(Response.new(status: 400, body: { error: "invalid JSON" }))
     rescue BadRequestError, AuthenticationError => error
+      @app.logger.warn("Rejected Teams request (#{error_status(error)}): #{error.message}")
       rack_response(Response.new(status: error_status(error), body: { error: error.message }))
     rescue StandardError => error
       @app.logger.error("Error processing Teams activity: #{error.class}: #{error.message}")

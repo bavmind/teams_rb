@@ -23,6 +23,19 @@ module Teams
   # Raised when streaming is not allowed for this user or bot.
   class StreamNotAllowedError < TerminalStreamError; end
 
+  # A failed Microsoft Graph request; code carries the Graph error code
+  # (e.g. "Authorization_RequestDenied") and body the full error payload.
+  class GraphError < Error
+    attr_reader :status, :code, :body
+
+    def initialize(message, status:, code: nil, body: nil)
+      super(message)
+      @status = status
+      @code = code
+      @body = body
+    end
+  end
+
   class HttpError < Error
     attr_reader :status, :headers, :body, :request
 

@@ -235,6 +235,26 @@ class AppTest < Minitest::Test
     assert_equal "markdown", @api.sent.first[1]["textFormat"]
   end
 
+  def test_hash_activities_accept_symbol_keys
+    @teams.on_message do |ctx|
+      ctx.post({ type: "message", text: "symbols", channelData: { feedbackLoop: { type: "default" } } })
+      ctx.stream.emit({ type: "message", text: "streamed symbols" })
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+
+    plain = @api.sent.first[1]
+    assert_equal "symbols", plain["text"]
+    assert_equal({ "type" => "default" }, plain.dig("channelData", "feedbackLoop"))
+
+    chunk = @api.sent[1][1]
+    assert_equal "typing", chunk["type"]
+    assert_equal "streamed symbols", chunk["text"]
+    assert_equal "streaming", chunk.dig("channelData", "streamType")
+  end
+
   def test_suggested_action_submit_handler
     values = []
 
@@ -413,7 +433,11 @@ class AppTest < Minitest::Test
 
   def test_stream_emits_cumulative_typing_chunks_and_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "Hello"
+      # Wait for the first chunk to ship so the second emit lands in a
+      # separate flush cycle, making the chunk boundary deterministic.
+      wait_until { @api.sent.size == 1 }
       ctx.stream.emit ", world"
     end
 
@@ -449,6 +473,7 @@ class AppTest < Minitest::Test
 
   def test_stream_update_sends_informative_chunk_before_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.update "Thinking..."
       ctx.stream.emit "Hello"
     end
@@ -479,6 +504,7 @@ class AppTest < Minitest::Test
 
   def test_stream_update_without_message_does_not_send_final_message
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.update "Thinking..."
     end
 
@@ -492,14 +518,18 @@ class AppTest < Minitest::Test
 
   def test_stream_final_message_can_add_ai_generated_label
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "Hello"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.emit Teams::Api::MessageActivity.new.add_ai_generated
     end
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 2, @api.sent.size
+    # The second flush cycle contains a message emit, so the accumulated
+    # text ships again as a chunk before the final, like TypeScript/Python.
+    assert_equal 3, @api.sent.size
     assert_equal 0, @api.updates.size
 
     final = @api.sent.last[1]
@@ -517,8 +547,13 @@ class AppTest < Minitest::Test
     )
   end
 
-  def test_stream_final_attachment_without_text_omits_text
+  # A card-only stream never sends a chunk, so no stream id is assigned and
+  # close sends nothing, matching TypeScript/Python (their close returns
+  # early with no content). Card finals belong after text chunks, via
+  # clear_text if needed.
+  def test_stream_card_only_emit_sends_nothing
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit(
         Teams::Api::MessageActivity.new.add_card(
           "type" => "AdaptiveCard",
@@ -528,24 +563,21 @@ class AppTest < Minitest::Test
           ]
         )
       )
+      wait_for_stream_idle(ctx.stream)
     end
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
-    assert_equal 1, @api.sent.size
-
-    final = @api.sent.last[1]
-
-    assert_equal "message", final["type"]
-    refute final.key?("text")
-    assert_equal "application/vnd.microsoft.card.adaptive", final["attachments"].first["contentType"]
-    assert_equal "final", final.dig("channelData", "streamType")
+    assert_empty @api.sent
+    assert_empty @api.updates
   end
 
   def test_stream_clear_text_discards_accumulated_text_before_card_final
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "discard this"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.clear_text
       ctx.stream.emit(
         Teams::Api::MessageActivity.new.add_card(
@@ -574,7 +606,9 @@ class AppTest < Minitest::Test
 
   def test_stream_clear_text_allows_later_text
     @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
       ctx.stream.emit "discard this"
+      wait_until { @api.sent.size == 1 }
       ctx.stream.clear_text
       ctx.stream.emit "keep this"
     end
@@ -588,6 +622,8 @@ class AppTest < Minitest::Test
     assert_equal "keep this", @api.sent[2][1]["text"]
   end
 
+  # Chunk-send errors are classified and swallowed on the flusher thread, so
+  # the mapping surfaces through close's final send, like TypeScript/Python.
   def test_stream_maps_403_error_messages_to_typed_errors
     {
       "Content stream was canceled by user." => Teams::StreamCancelledError,
@@ -597,10 +633,11 @@ class AppTest < Minitest::Test
       "Request streamed content should contain the previously streamed content" => Teams::TerminalStreamError
     }.each do |message, expected|
       api = FakeApi.new
-      api.send_filter = ->(_payload) { raise stream_http_error(message) }
+      api.send_filter = ->(payload) { raise stream_http_error(message) if payload["type"] == "message" }
       stream = build_stream(api)
 
-      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.emit "hi" }
+      stream.emit "hi"
+      error = assert_raises(Teams::Error, "expected a stream error for #{message.inspect}") { stream.close }
       assert_instance_of expected, error, "wrong error class for #{message.inspect}"
       assert_equal message, error.message
     end
@@ -608,19 +645,21 @@ class AppTest < Minitest::Test
 
   def test_stream_403_with_empty_body_maps_to_terminal_error
     api = FakeApi.new
-    api.send_filter = ->(_payload) { raise stream_http_error }
+    api.send_filter = ->(payload) { raise stream_http_error if payload["type"] == "message" }
     stream = build_stream(api)
 
-    error = assert_raises(Teams::TerminalStreamError) { stream.emit "hi" }
+    stream.emit "hi"
+    error = assert_raises(Teams::TerminalStreamError) { stream.close }
     assert_instance_of Teams::TerminalStreamError, error
   end
 
   def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
     api = FakeApi.new
-    api.send_filter = ->(_payload) { raise stream_http_error("Content stream is not allowed") }
+    api.send_filter = ->(payload) { raise stream_http_error("Content stream is not allowed") if payload["type"] == "message" }
     stream = build_stream(api)
 
-    assert_raises(Teams::StreamNotAllowedError) { stream.emit "hi" }
+    stream.emit "hi"
+    assert_raises(Teams::StreamNotAllowedError) { stream.close }
     refute stream.canceled
     refute stream.timed_out
   end
@@ -630,8 +669,10 @@ class AppTest < Minitest::Test
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
     stream = build_stream(api)
 
-    assert_raises(Teams::StreamCancelledError) { stream.emit "hi" }
-    assert stream.canceled
+    # The cancelling 403 lands on the flusher thread and is swallowed there;
+    # the sticky flag is the observable, like TypeScript/Python.
+    stream.emit "hi"
+    wait_until { stream.canceled }
     assert_nil stream.close
 
     api.send_filter = nil
@@ -644,10 +685,11 @@ class AppTest < Minitest::Test
     stream = build_stream(api)
 
     stream.emit "Hello"
+    wait_until { api.sent.size == 1 }
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream finished due to exceeded streaming time.") }
     stream.emit ", world"
 
-    assert stream.timed_out
+    wait_until { stream.timed_out }
     api.send_filter = nil
 
     result = stream.close
@@ -879,6 +921,457 @@ class AppTest < Minitest::Test
     assert_equal [first, second], closes
   end
 
+  def test_dialog_open_returns_card_dialog_as_invoke_response_body
+    @teams.on_dialog_open do |_ctx|
+      Teams::Api::TaskModuleResponse.new(
+        Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(
+            title: "Simple Form",
+            card: { "type" => "AdaptiveCard", "version" => "1.6", "body" => [] }
+          )
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch")), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "continue", body.dig("task", "type")
+    assert_equal "Simple Form", body.dig("task", "value", "title")
+    assert_equal "application/vnd.microsoft.card.adaptive", body.dig("task", "value", "card", "contentType")
+    assert_equal "AdaptiveCard", body.dig("task", "value", "card", "content", "type")
+  end
+
+  def test_dialog_open_routes_by_dialog_id
+    opened = []
+    @teams.on_dialog_open("simple_form") do |ctx|
+      opened << ctx.activity.value.data["dialog_id"]
+      { "task" => { "type" => "message", "value" => "simple" } }
+    end
+    @teams.on_dialog_open("other_form") do |_ctx|
+      { "task" => { "type" => "message", "value" => "other" } }
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch", data: { "dialog_id" => "simple_form" })),
+      { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["simple_form"], opened
+    assert_equal "simple", JSON.parse(last_response.body).dig("task", "value")
+  end
+
+  def test_dialog_open_url_task_info
+    @teams.on_dialog_open do |_ctx|
+      Teams::Api::TaskModuleResponse.new(
+        Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(title: "Webpage", url: "https://example.com/form", width: 1000, height: "large")
+        )
+      )
+    end
+
+    post "/api/messages", JSON.generate(dialog_invoke_payload("task/fetch")), { "CONTENT_TYPE" => "application/json" }
+
+    value = JSON.parse(last_response.body).dig("task", "value")
+    assert_equal(
+      { "title" => "Webpage", "height" => "large", "width" => 1000, "url" => "https://example.com/form" },
+      value
+    )
+  end
+
+  def test_dialog_submit_routes_by_action_and_returns_message_response
+    submitted = []
+    @teams.on_dialog_submit("submit_simple_form") do |ctx|
+      submitted << ctx.activity.value.data["name"]
+      Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("Form was submitted"))
+    end
+
+    payload = dialog_invoke_payload("task/submit", data: { "action" => "submit_simple_form", "name" => "Devran" })
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["Devran"], submitted
+    assert_equal(
+      { "task" => { "type" => "message", "value" => "Form was submitted" } },
+      JSON.parse(last_response.body)
+    )
+  end
+
+  def test_dialog_submit_with_non_matching_action_does_not_run
+    @teams.on_dialog_submit("wanted") do |_ctx|
+      Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("nope"))
+    end
+
+    payload = dialog_invoke_payload("task/submit", data: { "action" => "unwanted" })
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "", last_response.body
+  end
+
+  def test_message_handler_return_value_does_not_leak_into_response_body
+    @teams.on_message { |ctx| ctx.reply "echo" }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "", last_response.body
+  end
+
+  def test_message_ext_query_returns_result_list
+    @teams.on_message_ext_query do |ctx|
+      search = ctx.activity.value.parameters.find { |param| param["name"] == "searchQuery" }
+      Teams::Api::MessagingExtensionResponse.new(
+        Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [
+            Teams::Api::MessagingExtensionAttachment.new(
+              content_type: "application/vnd.microsoft.card.adaptive",
+              content: { "type" => "AdaptiveCard", "version" => "1.6", "body" => [] },
+              preview: { "contentType" => "application/vnd.microsoft.card.thumbnail",
+                         "content" => { "title" => search["value"] } }
+            )
+          ]
+        )
+      )
+    end
+
+    payload = message_ext_payload(
+      "composeExtension/query",
+      "commandId" => "searchCmd",
+      "parameters" => [{ "name" => "searchQuery", "value" => "ruby" }],
+      "queryOptions" => { "skip" => 0, "count" => 25 }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    result = body["composeExtension"]
+    assert_equal "result", result["type"]
+    assert_equal "list", result["attachmentLayout"]
+    assert_equal "ruby", result["attachments"].first.dig("preview", "content", "title")
+  end
+
+  def test_message_ext_submit_returns_action_response_with_result
+    @teams.on_message_ext_submit do |_ctx|
+      Teams::Api::MessagingExtensionActionResponse.new(
+        compose_extension: Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [{ "contentType" => "application/vnd.microsoft.card.adaptive",
+                          "content" => { "type" => "AdaptiveCard", "body" => [] } }]
+        )
+      )
+    end
+
+    payload = message_ext_payload(
+      "composeExtension/submitAction",
+      "commandId" => "createCmd",
+      "data" => { "title" => "New item" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "result", body.dig("composeExtension", "type")
+  end
+
+  def test_message_ext_open_returns_dialog_via_task
+    @teams.on_message_ext_open do |ctx|
+      assert_equal "createCmd", ctx.activity.value.command_id
+      Teams::Api::MessagingExtensionActionResponse.new(
+        task: Teams::Api::TaskModuleContinueResponse.new(
+          Teams::Api::TaskModuleTaskInfo.new(title: "Create item", card: { "type" => "AdaptiveCard", "body" => [] })
+        )
+      )
+    end
+
+    payload = message_ext_payload("composeExtension/fetchTask", "commandId" => "createCmd")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "continue", body.dig("task", "type")
+    assert_equal "Create item", body.dig("task", "value", "title")
+  end
+
+  def test_message_ext_query_link_unfurls
+    @teams.on_message_ext_query_link do |ctx|
+      Teams::Api::MessagingExtensionResponse.new(
+        Teams::Api::MessagingExtensionResult.new(
+          type: "result",
+          attachment_layout: "list",
+          attachments: [{ "contentType" => "application/vnd.microsoft.card.adaptive",
+                          "content" => { "type" => "AdaptiveCard",
+                                         "body" => [{ "type" => "TextBlock", "text" => ctx.activity.value.raw["url"] }] } }]
+        )
+      )
+    end
+
+    payload = message_ext_payload("composeExtension/queryLink", "url" => "https://example.com/item/1")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal "https://example.com/item/1",
+      body.dig("composeExtension", "attachments", 0, "content", "body", 0, "text")
+  end
+
+  def test_message_ext_routes_are_isolated_by_invoke_name
+    fired = []
+    @teams.on_message_ext_query { |_ctx| fired << :query; nil }
+    @teams.on_message_ext_select_item { |_ctx| fired << :select_item; nil }
+    @teams.on_message_ext_setting { |_ctx| fired << :setting; nil }
+    @teams.on_message_ext_card_button_clicked { |_ctx| fired << :card_button; nil }
+
+    payload = message_ext_payload("composeExtension/selectItem", "itemId" => "42")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [:select_item], fired
+    assert_equal "", last_response.body
+  end
+
+  def test_user_graph_requires_sign_in_and_uses_user_token
+    graphs = []
+    @teams.on_message do |ctx|
+      begin
+        ctx.user_graph
+      rescue Teams::Error => error
+        graphs << error.message
+      end
+
+      @api.users.token = "user-graph-token"
+      graphs << ctx.user_graph
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_includes graphs[0], "must be signed in"
+    assert_instance_of Teams::Graph::Client, graphs[1]
+  end
+
+  def test_sign_in_returns_existing_token_without_sending_a_card
+    @api.users.token = "existing-user-token"
+    result = nil
+    @teams.on_message { |ctx| result = ctx.sign_in }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "existing-user-token", result
+    assert_empty @api.sent
+    assert_equal "graph", @api.users.token_requests.first[:connection_name]
+  end
+
+  def test_sign_in_sends_oauth_card_when_not_signed_in
+    result = :unset
+    @teams.on_message { |ctx| result = ctx.sign_in(connection_name: "custom") }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_nil result
+    assert_equal 1, @api.sent.size
+
+    outbound = @api.sent.first[1]
+    attachment = outbound["attachments"].first
+    assert_equal "application/vnd.microsoft.card.oauth", attachment["contentType"]
+    card = attachment["content"]
+    assert_equal "custom", card["connectionName"]
+    assert_equal "api://botid-x/scope", card.dig("tokenExchangeResource", "uri")
+    button = card["buttons"].first
+    assert_equal "signin", button["type"]
+    assert_includes button["value"], "https://token.botframework.com/signin"
+    assert_equal "user-1", outbound.dig("recipient", "id")
+
+    state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
+    assert_equal "custom", state["connectionName"]
+    assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_out_clears_token_for_default_connection
+    @teams.on_message { |ctx| ctx.sign_out }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal(
+      [{ user_id: "user-1", connection_name: "graph", channel_id: "msteams" }],
+      @api.users.sign_outs
+    )
+  end
+
+  def test_default_token_exchange_completes_sso_and_fires_sign_in
+    @api.users.token = "sso-user-token"
+    events = []
+    @teams.on_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [["signin/tokenExchange", "sso-user-token"]], events
+    assert_equal "exchangeable", @api.users.exchanges.first[:exchange_request]["token"]
+  end
+
+  def test_default_token_exchange_returns_412_when_exchange_fails
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "bad")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 412, last_response.status
+    body = JSON.parse(last_response.body)
+    assert_equal "exchange-1", body["id"]
+    assert_equal "graph", body["connectionName"]
+    assert body["failureDetail"]
+  end
+
+  def test_default_verify_state_completes_sign_in
+    @api.users.token = "interactive-token"
+    events = []
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+
+    payload = message_ext_payload("signin/verifyState", "state" => "123456")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["interactive-token"], events
+    assert_equal "123456", @api.users.token_requests.first[:code]
+  end
+
+  def test_default_verify_state_without_state_returns_404
+    payload = message_ext_payload("signin/verifyState", {})
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 404, last_response.status
+  end
+
+  def test_signin_failure_fires_error_handler
+    errors = []
+    @teams.on_error { |error, activity| errors << [error.message, activity.name] }
+
+    payload = message_ext_payload("signin/failure", "code" => "resourcematchfailed", "message" => "URI mismatch")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, errors.length
+    assert_includes errors.first[0], "resourcematchfailed"
+    assert_equal "signin/failure", errors.first[1]
+  end
+
+  def test_signin_invoke_routes
+    fired = []
+    @teams.on_signin_token_exchange { |_ctx| fired << :exchange; nil }
+    @teams.on_signin_verify_state { |_ctx| fired << :verify; nil }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "sso-token")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    assert_equal [:exchange], fired
+
+    payload = message_ext_payload("signin/verifyState", "state" => "magic-code")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    assert_equal [:exchange, :verify], fired
+  end
+
+  def test_message_submit_feedback_routes_only_feedback_submissions
+    fired = []
+    @teams.on_message_submit_feedback { |ctx| fired << ctx.activity.value.raw.dig("actionValue", "reaction"); nil }
+
+    payload = message_ext_payload(
+      "message/submitAction",
+      "actionName" => "feedback",
+      "actionValue" => { "reaction" => "like", "feedback" => "{\"feedbackText\":\"great\"}" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["like"], fired
+
+    payload = message_ext_payload("message/submitAction", "actionName" => "other")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal ["like"], fired, "non-feedback submissions must not match the feedback route"
+  end
+
+  def test_message_submit_routes_any_submit_action
+    fired = []
+    @teams.on_message_submit { |ctx| fired << ctx.activity.value.raw["actionName"]; nil }
+
+    post "/api/messages", JSON.generate(message_ext_payload("message/submitAction", "actionName" => "feedback")),
+      { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(message_ext_payload("message/submitAction", "actionName" => "other")),
+      { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal %w[feedback other], fired
+  end
+
+  def test_meeting_start_event_routes_with_pascal_case_value
+    seen = nil
+    @teams.on_meeting_start { |ctx| seen = ctx.activity.value }
+    @teams.on_meeting_end { |_ctx| flunk "meeting_end must not fire for meetingStart" }
+
+    payload = teams_payload.merge(
+      "type" => "event",
+      "name" => "application/vnd.microsoft.meetingStart",
+      "value" => {
+        "Id" => "TWVldGluZ0lk",
+        "MeetingType" => "Scheduled",
+        "JoinUrl" => "https://teams.microsoft.com/l/meetup-join/x",
+        "Title" => "Standup",
+        "StartTime" => "2026-07-12T09:00:00Z"
+      }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal "Standup", seen.title
+    assert_equal "Scheduled", seen.meeting_type
+    assert_equal "https://teams.microsoft.com/l/meetup-join/x", seen.join_url
+    assert_equal "2026-07-12T09:00:00Z", seen.start_time
+    assert_equal "TWVldGluZ0lk", seen.id
+  end
+
+  def test_meeting_end_event_routes
+    ended = []
+    @teams.on_meeting_end { |ctx| ended << ctx.activity.value.end_time }
+
+    payload = teams_payload.merge(
+      "type" => "event",
+      "name" => "application/vnd.microsoft.meetingEnd",
+      "value" => { "Id" => "TWVldGluZ0lk", "Title" => "Standup", "EndTime" => "2026-07-12T09:30:00Z" }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["2026-07-12T09:30:00Z"], ended
+  end
+
+  def test_warns_at_startup_without_credentials
+    output = StringIO.new
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))
+
+    assert_includes output.string, "All incoming requests will be rejected"
+  end
+
+  def test_warns_at_startup_without_credentials_when_skip_auth_enabled
+    output = StringIO.new
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, skip_auth: true, logger: Logger.new(output))
+
+    assert_includes output.string, "accept unauthenticated requests on /api/messages"
+  end
+
+  def test_no_startup_warning_with_credentials
+    output = StringIO.new
+    Teams::App.new(client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: Logger.new(output))
+
+    refute_includes output.string, "No credentials configured"
+  end
+
   def test_typing_accepts_optional_text
     @teams.on_message do |ctx|
       ctx.typing
@@ -904,7 +1397,28 @@ class AppTest < Minitest::Test
     teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
     activity = Teams::Activity.new(teams_payload)
     conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
-    Teams::HttpStream.new(app: teams, conversation_reference:)
+    fast_stream(Teams::HttpStream.new(app: teams, conversation_reference:))
+  end
+
+  # Shrinks the stream's flush/poll intervals so tests exercising the
+  # background flusher stay fast.
+  def fast_stream(stream)
+    stream.instance_variable_set(:@flush_interval, 0.01)
+    stream.instance_variable_set(:@poll_interval, 0.005)
+    stream.instance_variable_set(:@total_wait_timeout, 2)
+    stream
+  end
+
+  def wait_until(timeout: 2)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+    until yield
+      flunk "timed out waiting for condition" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+      sleep 0.005
+    end
+  end
+
+  def wait_for_stream_idle(stream)
+    wait_until { stream.count.zero? && !stream.instance_variable_get(:@flushing) }
   end
 
   def stream_http_error(message = nil)

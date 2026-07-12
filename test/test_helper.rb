@@ -10,8 +10,68 @@ require "base64"
 require "stringio"
 require "teams"
 
+class FakeUserTokens
+  attr_accessor :token
+  attr_reader :sign_outs, :token_requests
+
+  def initialize
+    @token = nil
+    @sign_outs = []
+    @token_requests = []
+  end
+
+  def get_token(user_id:, connection_name:, channel_id: nil, code: nil)
+    @token_requests << { user_id:, connection_name:, channel_id:, code: }
+    unless @token
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::TokenResponse.new("connectionName" => connection_name, "token" => @token)
+  end
+
+  def sign_out(user_id:, connection_name:, channel_id:)
+    @sign_outs << { user_id:, connection_name:, channel_id: }
+    nil
+  end
+
+  def exchange_token(user_id:, connection_name:, channel_id:, exchange_request:)
+    @exchanges ||= []
+    @exchanges << { user_id:, connection_name:, channel_id:, exchange_request: }
+    unless @token
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::TokenResponse.new("connectionName" => connection_name, "token" => @token)
+  end
+
+  def exchanges
+    @exchanges ||= []
+  end
+end
+
+class FakeBotSignIn
+  attr_reader :states
+
+  def initialize
+    @states = []
+  end
+
+  def sign_in
+    self
+  end
+
+  def get_resource(state:, **)
+    @states << state
+    Teams::Api::SignInUrlResponse.new(
+      "signInLink" => "https://token.botframework.com/signin?state=#{state}",
+      "tokenExchangeResource" => { "id" => "resource-1", "uri" => "api://botid-x/scope" },
+      "tokenPostResource" => { "sasUrl" => "https://token.botframework.com/sas" }
+    )
+  end
+end
+
 class FakeApi
-  attr_reader :service_url, :sent, :replies, :updates, :targeted_sent, :targeted_updates
+  attr_reader :service_url, :sent, :replies, :updates, :targeted_sent, :targeted_updates, :users, :bots
   attr_accessor :send_filter
 
   def initialize(service_url: "https://smba.trafficmanager.net/teams")
@@ -21,9 +81,17 @@ class FakeApi
     @updates = []
     @targeted_sent = []
     @targeted_updates = []
+    @users = FakeUserTokens.new
+    @bots = FakeBotSignIn.new
   end
 
-  def send_to_conversation(conversation_id, activity, service_url: nil)
+  # The app sends through api.conversations; the fake records on itself so
+  # tests keep reading api.sent / api.replies / api.updates directly.
+  def conversations
+    self
+  end
+
+  def create_activity(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
     @send_filter&.call(snapshot)
@@ -50,7 +118,7 @@ class FakeApi
     { "id" => activity_id }
   end
 
-  def send_targeted_to_conversation(conversation_id, activity, service_url: nil)
+  def create_targeted_activity(conversation_id, activity, service_url: nil)
     payload = activity.respond_to?(:to_h) ? activity.to_h : activity
     snapshot = Marshal.load(Marshal.dump(payload))
     @targeted_sent << [conversation_id, snapshot, service_url]
@@ -62,6 +130,25 @@ class FakeApi
     snapshot = Marshal.load(Marshal.dump(payload))
     @targeted_updates << [conversation_id, activity_id, snapshot, service_url]
     { "id" => activity_id }
+  end
+
+  attr_accessor :member_missing
+
+  def get_member_by_id(conversation_id, member_id, service_url: nil)
+    if @member_missing
+      raise Teams::HttpError.new("HTTP request failed with status 404", status: 404, headers: {}, body: "")
+    end
+
+    Teams::Api::Account.new("id" => member_id, "name" => "Member")
+  end
+
+  def create(members: nil, tenant_id: nil, activity: nil, channel_data: nil, service_url: nil)
+    created_conversations << { members:, tenant_id: }
+    Teams::Api::ConversationResource.new("id" => "created-conversation-1")
+  end
+
+  def created_conversations
+    @created_conversations ||= []
   end
 
   private
@@ -80,12 +167,24 @@ class FakeHttp
   end
 
   def get(url, **)
-    responses.fetch(url)
+    respond(url)
   end
 
   def post(url, **kwargs)
     @posts << [url, kwargs]
-    responses.fetch(url)
+    respond(url)
+  end
+
+  private
+
+  # A response value may be a plain body, a proc returning one, or an
+  # exception instance to raise (mirroring HttpClient raising HttpError).
+  def respond(url)
+    response = responses.fetch(url)
+    response = response.call if response.respond_to?(:call)
+    raise response if response.is_a?(Exception)
+
+    response
   end
 end
 
@@ -157,6 +256,18 @@ def quoted_teams_payload
       }
     ]
   )
+end
+
+def dialog_invoke_payload(name, data: {}, context: { "theme" => "default" })
+  teams_payload.merge(
+    "type" => "invoke",
+    "name" => name,
+    "value" => { "data" => data, "context" => context }
+  )
+end
+
+def message_ext_payload(name, value)
+  teams_payload.merge("type" => "invoke", "name" => name, "value" => value)
 end
 
 def suggested_action_submit_payload(value: { "choice" => "approve" })

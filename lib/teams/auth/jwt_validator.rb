@@ -13,6 +13,9 @@ module Teams
         @cloud = cloud
         @http = http || Common::HttpClient.new
         @jwks = {}
+        # The validator is shared across request threads; the mutex keeps
+        # concurrent cold-cache requests from fetching the JWKS repeatedly.
+        @jwks_mutex = Mutex.new
       end
 
       def validate!(authorization_header, service_url: nil)
@@ -47,7 +50,13 @@ module Teams
         raise AuthenticationError, "JWT expired" if payload["exp"] && now >= payload["exp"].to_i
         raise AuthenticationError, "JWT not active yet" if payload["nbf"] && now < payload["nbf"].to_i
         raise AuthenticationError, "JWT issuer is invalid" unless valid_issuer?(payload["iss"])
-        raise AuthenticationError, "JWT audience is invalid" unless Array(payload["aud"]).include?(@client_id)
+        raise AuthenticationError, "JWT audience is invalid" if (Array(payload["aud"]) & valid_audiences).empty?
+      end
+
+      # Inbound tokens may be audienced as the bare app id, api://{appId},
+      # or api://botid-{appId}; all three SDKs accept all three forms.
+      def valid_audiences
+        [@client_id, "api://#{@client_id}", "api://botid-#{@client_id}"]
       end
 
       def validate_service_url!(payload, expected_service_url)
@@ -79,7 +88,7 @@ module Teams
         payload = JSON.parse(Base64.urlsafe_decode64(pad(payload_segment)))
         uri = jwks_uri_for_issuer(payload["iss"])
 
-        @jwks[uri] ||= @http.get(uri)
+        @jwks_mutex.synchronize { @jwks[uri] ||= @http.get(uri) }
       rescue JSON::ParserError, ArgumentError
         raise AuthenticationError, "JWT is malformed"
       end
@@ -92,9 +101,11 @@ module Teams
       end
 
       def bot_framework_jwks_uri
-        @bot_framework_jwks_uri ||= begin
-          metadata = @http.get(@cloud.open_id_metadata_url)
-          metadata.fetch("jwks_uri")
+        @jwks_mutex.synchronize do
+          @bot_framework_jwks_uri ||= begin
+            metadata = @http.get(@cloud.open_id_metadata_url)
+            metadata.fetch("jwks_uri")
+          end
         end
       end
 

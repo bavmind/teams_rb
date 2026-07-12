@@ -1,17 +1,30 @@
 # teams_rb
 
-Ruby SDK for receiving and sending Microsoft Teams bot messages from Rack/Rails apps.
+A Ruby-native port of the Microsoft Teams SDKs ([TypeScript](https://microsoft.github.io/teams-sdk/typescript/getting-started), [Python](https://microsoft.github.io/teams-sdk/python/getting-started), [C#](https://microsoft.github.io/teams-sdk/csharp/getting-started)) for building Teams bots and apps from Rack/Rails.
 
-This first MVP targets the production message-bot path:
+> **Unofficial.** `teams_rb` is an independent, community-maintained project. It is not affiliated with, endorsed by, or sponsored by Microsoft. The official Teams SDKs (TypeScript, Python, C#) are developed by Microsoft at [github.com/microsoft/teams-sdk](https://github.com/microsoft/teams-sdk). "Microsoft", "Microsoft Teams", and "Microsoft 365" are trademarks of the Microsoft group of companies.
 
-- Rack endpoint for Teams messages
-- Inbound Teams request validation enabled by default
-- Message routing with `on_message`
-- Replies, updates, and proactive sends through the Teams API
-- Faraday HTTP client
-- Minitest test suite
+It preserves the Teams SDK concepts and wire behavior while using Ruby idioms for the public API, and versions alongside the Teams SDK v2 generation it ports. Every capability is verified against all three upstream SDKs and live-tested in Teams:
 
-Current live status: receiving a Teams message and replying through Bot Framework has been verified with a Dev Tunnel and Microsoft Teams install.
+- Message routing, middleware, and the activity context
+- Sending: post, reply, quote, update, typing, formatting, mentions, sensitivity labels, citations
+- Proactive messaging and conversation creation
+- The full API client — conversations, teams, meetings, users, bot sign-in
+- Adaptive Cards (all 112 element classes, generated from the SDK card model)
+- Dialogs, message extensions, streaming, meeting events
+- OAuth user sign-in and Microsoft Graph (app and user identity)
+- Tabs and remote functions
+- Inbound JWT validation, bot token management, thread-safe by design
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md), structured like the official SDK docs:
+
+- **[Getting started](docs/getting-started/README.md)** — quickstart, code basics, running in Teams
+- **[Essentials](docs/essentials/README.md)** — app, activities, sending, proactive, API client, auth, Graph
+- **[In-depth guides](docs/in-depth-guides/README.md)** — cards, dialogs, message extensions, streaming, user auth, tabs
+
+The rest of this file is a condensed reference; the docs are the primary source.
 
 ## Local Usage
 
@@ -61,8 +74,8 @@ end
 Reactions use the API client shape from the Microsoft SDKs:
 
 ```ruby
-teams.api.reactions.add(conversation_id, activity_id, "like")
-teams.api.reactions.delete(conversation_id, activity_id, "like")
+teams.api.conversations.add_reaction(conversation_id, activity_id, "like")
+teams.api.conversations.delete_reaction(conversation_id, activity_id, "like")
 ```
 
 To update a message later, keep the activity id returned from the original send:
@@ -74,7 +87,7 @@ teams.update(conversation_id, sent.fetch("id"), "Free phones gone now.")
 # equivalent SDK-send style:
 teams.post(conversation_id, Teams::Api::MessageActivity.new("Free phones gone now.").with_id(sent.fetch("id")))
 # lower-level parity surface:
-teams.api.update_activity(conversation_id, sent.fetch("id"), Teams::Api::MessageActivity.new("Free phones gone now."))
+teams.api.conversations.update_activity(conversation_id, sent.fetch("id"), Teams::Api::MessageActivity.new("Free phones gone now."))
 ```
 
 More Rack examples live in `examples/`.
@@ -89,6 +102,39 @@ run teams.to_rack
 Use `ctx.post` for a plain message in the conversation. The Microsoft Teams SDKs call this `send`, but Ruby already defines `Object#send` for dynamic dispatch, so this SDK uses `post` for the public Ruby API. Treat `post` as Ruby's spelling of SDK `send`: if the activity already has an `id`, it updates that activity instead of creating a new one. Use `ctx.reply` when you want Teams reply semantics: `replyToId` plus the Teams `quotedReply` entity and quote placeholder, matching the Microsoft SDK behavior. Use `ctx.update(activity_id, activity)` to replace a previous bot message in the current conversation.
 
 `ctx.ref` returns a `Teams::Api::ConversationReference`, matching the Teams SDK concept used for the current conversation. The same object is also available as `ctx.conversation_reference`. Store `ctx.ref.to_h` from a validated inbound activity if you need to post, reply, or update later from a job, then restore it with `Teams::Api::ConversationReference.from_h` and pass its `conversation_id` and `service_url` to `teams.post` / `teams.reply` / `teams.update`.
+
+To message a user without a stored conversation, create (or re-fetch) the 1:1 conversation first. Teams returns the existing conversation if one already exists for the same members:
+
+```ruby
+conversation = teams.api.conversations.create(
+  members: [{ id: user_id }],   # the user's Teams/Bot Framework id, e.g. "29:..."
+  tenant_id: tenant_id
+)
+teams.post(conversation.id, "Hello from your SaaS backend")
+```
+
+Conversation rosters come from the members APIs, which return `Teams::Api::Account` objects (with `aadObjectId` normalized, matching the other SDKs):
+
+```ruby
+teams.api.conversations.get_members(conversation_id)
+teams.api.conversations.get_member_by_id(conversation_id, member_id)
+teams.api.conversations.get_paged_members(conversation_id, page_size: 200)          # => Teams::Api::PagedMembersResult
+teams.api.conversations.get_activity_members(conversation_id, activity_id)
+```
+
+Use `get_paged_members` for large rosters: pass the result's `continuation_token` back in until it returns `nil`.
+
+Team and meeting lookups follow the same client shape:
+
+```ruby
+teams.api.teams.get_by_id(team_id)            # => Teams::Api::TeamDetails
+teams.api.teams.get_conversations(team_id)    # => [Teams::Api::ChannelInfo] (the team's channels)
+teams.api.meetings.get_by_id(meeting_id)      # => Teams::Api::MeetingInfo
+teams.api.meetings.get_participant(meeting_id, aad_object_id, tenant_id)
+teams.api.meetings.send_notification(meeting_id, { value: { recipients: [aad_object_id], surfaces: [{ surface: "meetingStage", contentType: "task", content: { ... } }] } })
+```
+
+`send_notification` returns `nil` when every recipient was notified (HTTP 202) and a `Teams::Api::MeetingNotificationResponse` with `recipients_failure_info` on partial success (HTTP 207).
 
 For modeled Ruby object access, use snake_case field names:
 
@@ -160,6 +206,18 @@ ctx.post Teams::Api::MessageActivity.new("Only for you").with_recipient(account,
 
 Targeted messages are rejected in 1:1 (personal) chats, where every message is already private.
 
+This repository is self-contained: the generated card classes and their golden fixtures are committed, so the gem and its test suite need nothing beyond Ruby. Regenerating the card classes requires a clone of Microsoft's Python SDK and [uv](https://docs.astral.sh/uv/); by default a checkout next to this repository is used, and `TEAMS_PY_PATH` points anywhere else:
+
+```sh
+bundle exec rake cards:generate
+# or with a custom checkout location:
+TEAMS_PY_PATH=/path/to/teams.py bundle exec rake cards:generate
+```
+
+The SDK-parity comparison workflow additionally uses sibling clones of `teams.ts` and `teams.net`, as described in the porting workspace's `AGENTS.md`.
+
+The full Adaptive Card schema (112 typed classes) is available under `Teams::Cards`, generated from the Python SDK's card models and golden-tested to serialize identically. Cards serialize with the same defaults the other SDKs emit. Raw card JSON via `add_card(hash)` remains available as an escape hatch. Two live-verified gotchas: some card fields are server-side enums (for example `CodeBlock` `language:` — Teams rejects the whole message for values outside the enum), and a card `Action.Submit` arrives as a message activity with `nil` text, an ephemeral id, and the inputs in `value` — answer it with `ctx.post`, since quote-replying to the invisible submit activity is rejected by Teams.
+
 For streamed responses, use `ctx.stream`:
 
 ```ruby
@@ -177,7 +235,7 @@ ctx.stream.on_chunk { |sent| logger.debug("chunk #{sent.id}") }
 ctx.stream.on_close { |sent| MessageLog.record(sent.id) }
 ```
 
-Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels, and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place.
+Emits are queued and flushed by a background thread, matching the TypeScript and Python streamers: rapid emits coalesce into fewer chunks (spaced to respect Teams rate limits), transient send failures retry with backoff, and `close` waits for the queue to drain before sending the final message. Emitting again after `ctx.stream.close` starts a new streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors: `Teams::StreamCancelledError` when the user cancels (sets the sticky `canceled` flag and makes the next `emit` raise), and `Teams::StreamNotAllowedError` or `Teams::TerminalStreamError` for terminal streaming failures — chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams two-minute streaming limit finalizes automatically by updating the streamed message in place. Note that a card-only stream (no text ever emitted) sends nothing, like the other SDKs: emit text chunks first, then `clear_text` and emit the card as the final message.
 
 To mark a final message as AI-generated, use `add_ai_generated` on `MessageActivity`. This also works as the final streamed message metadata:
 
@@ -189,6 +247,112 @@ teams.on_message do |ctx|
   ctx.stream.emit(Teams::Api::MessageActivity.new.add_ai_generated)
 end
 ```
+
+Dialogs (Teams task modules) open from a card action whose data carries `msteams: { type: "task/fetch" }`. Route them with `on_dialog_open` / `on_dialog_submit`; the reserved `dialog_id` and `action` data keys select specific handlers, matching the other SDKs. The handler's return value — a `Teams::Api::TaskModuleResponse` (or an equivalent hash) — becomes the invoke response Teams renders:
+
+```ruby
+teams.on_message(/^form$/i) do |ctx|
+  ctx.post Teams::Api::MessageActivity.new.add_card(
+    Teams::Cards::AdaptiveCard.new(
+      Teams::Cards::TextBlock.new("Open the form"),
+      actions: [Teams::Cards::SubmitAction.new(
+        title: "Open",
+        data: { "msteams" => { "type" => "task/fetch" }, "dialog_id" => "simple_form" }
+      )]
+    )
+  )
+end
+
+teams.on_dialog_open("simple_form") do |ctx|
+  Teams::Api::TaskModuleResponse.new(
+    Teams::Api::TaskModuleContinueResponse.new(
+      Teams::Api::TaskModuleTaskInfo.new(title: "Simple Form", card: dialog_card)
+    )
+  )
+end
+
+teams.on_dialog_submit("submit_simple_form") do |ctx|
+  ctx.post "Hi #{ctx.activity.value.data["name"]}!"
+  Teams::Api::TaskModuleResponse.new(Teams::Api::TaskModuleMessageResponse.new("Form was submitted"))
+end
+```
+
+`TaskModuleTaskInfo` takes `card:` (an `AdaptiveCard`, card hash, or ready attachment — cards are wrapped into an attachment automatically) or `url:` for webpage dialogs, plus `title:`, `height:`/`width:` (`"small"`/`"medium"`/`"large"` or pixels), `fallback_url:`, and `completion_bot_id:`. Returning a `TaskModuleContinueResponse` from a submit handler chains multi-step dialogs; a `TaskModuleMessageResponse` shows a message and closes.
+
+Message extensions (compose extensions) route the `composeExtension/*` invokes with the same handler names as the Python SDK: `on_message_ext_query`, `on_message_ext_select_item`, `on_message_ext_submit`, `on_message_ext_open` (fetchTask), `on_message_ext_query_link`, `on_message_ext_anon_query_link`, `on_message_ext_query_settings_url`, `on_message_ext_setting`, and `on_message_ext_card_button_clicked`. The commands themselves are declared in the Teams app manifest; query handlers return a `MessagingExtensionResponse`, action handlers a `MessagingExtensionActionResponse` (which can open a dialog via `task:`, reusing the task module responses):
+
+```ruby
+teams.on_message_ext_query do |ctx|
+  query = ctx.activity.value.parameters.find { |p| p["name"] == "searchQuery" }&.dig("value")
+  results = Item.search(query).map do |item|
+    Teams::Api::MessagingExtensionAttachment.new(
+      content_type: "application/vnd.microsoft.card.adaptive",
+      content: item.to_card,
+      preview: { "contentType" => "application/vnd.microsoft.card.thumbnail",
+                 "content" => { "title" => item.title } }
+    )
+  end
+
+  Teams::Api::MessagingExtensionResponse.new(
+    Teams::Api::MessagingExtensionResult.new(type: "result", attachment_layout: "list", attachments: results)
+  )
+end
+
+teams.on_message_ext_query_link do |ctx|
+  card = unfurl(ctx.activity.value.raw["url"])
+  Teams::Api::MessagingExtensionResponse.new(
+    Teams::Api::MessagingExtensionResult.new(type: "result", attachment_layout: "list", attachments: [card])
+  )
+end
+```
+
+User sign-in (OAuth) needs an OAuth connection configured on the bot's Azure registration (name it to match `default_connection_name`, default `"graph"`). `ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card (to a 1:1 conversation when invoked from a group chat) and returns `nil`. The SDK's default handlers then complete the sign-in invokes — token exchange for silent SSO, verify-state for the interactive card — and hand the token to `on_sign_in`:
+
+```ruby
+teams = Teams::App.new(default_connection_name: "graph")
+
+teams.on_message(/^login$/i) do |ctx|
+  token = ctx.sign_in
+  ctx.reply "Already signed in!" if token
+end
+
+teams.on_sign_in do |ctx, token|
+  ctx.post "Welcome! You are signed in."
+  # token.token is the user's access token for the connection's scopes
+end
+
+teams.on_error do |error, activity|
+  # unexpected OAuth failures and client-reported sign-in failures
+end
+```
+
+`ctx.sign_out` clears the token. Handlers registered on `on_signin_token_exchange` / `on_signin_verify_state` / `on_signin_failure` run after the defaults for custom behavior. The lower-level surface lives on `teams.api.users` (`get_token`, `get_aad_tokens`, `get_token_status`, `sign_out`, `exchange_token`) and `teams.api.bots.sign_in` (`get_url`, `get_resource`) against the Bot Framework token service.
+
+Microsoft Graph is available through a thin request client (following the TypeScript SDK's core Graph client; the generated endpoint packages are not ported — the raw request surface is the API, like TypeScript's `client.http` escape hatch). `teams.graph` / `ctx.app_graph` use the app's own identity (app-only tokens via the client-credentials flow — grant the app *application* permissions in Entra for these). `ctx.user_graph` uses the signed-in user's token and raises if the user hasn't signed in:
+
+```ruby
+teams.on_message(/^whoami$/i) do |ctx|
+  me = ctx.user_graph.get("/me")   # requires prior ctx.sign_in
+  ctx.reply "You are #{me["displayName"]} (#{me["userPrincipalName"]})"
+end
+
+app_info = teams.graph.get("/applications", params: { "$top" => 1 })
+teams.graph.post("/users/#{user_id}/sendMail", json: { message: { subject: "Hi" } })
+```
+
+`get`/`post`/`patch`/`put`/`delete` take a path relative to `/v1.0`, return parsed hashes, and raise `Teams::GraphError` (with `status`, the Graph error `code`, and the full `body`) on failure. Sovereign clouds route automatically from the configured cloud's graph scope.
+
+Remote functions let a tab (or any Teams-hosted web page) call your bot backend as the signed-in user. The page acquires an Entra token through the Teams JS SDK and POSTs to `/api/functions/{name}` with the token plus the Teams client-context headers; the SDK validates the token against your app registration (client id audience forms, tenant issuer) and requires the `oid`/`tid`/`name` claims:
+
+```ruby
+teams.on_function("create-ticket") do |ctx|
+  ticket = Ticket.create!(title: ctx.data["title"], creator_oid: ctx.user_id)
+  ctx.post "#{ctx.user_name} created ticket #{ticket.id} from the tab"
+  { "id" => ticket.id }
+end
+```
+
+`ctx.data` is the parsed JSON body; identity (`user_id`, `tenant_id`, `user_name`) comes from the validated token; the client context (`chat_id`, `channel_id`, `meeting_id`, `team_id`, `page_id`, `app_session_id`, …) comes from the `X-Teams-*` headers. `ctx.conversation_id` resolves the chat/channel after validating the user's membership — or creates the 1:1 conversation in personal scope — and `ctx.post` sends into it proactively. The handler's return value becomes the JSON response body; invalid requests get `401` with a `detail` message.
 
 For @mentions, use `add_mention` on the outbound message and the mention readers on inbound activities:
 
@@ -261,10 +425,76 @@ ctx.reply card
 ctx.post Teams::Api::MessageActivity.new.add_card(card)
 ```
 
+## Configuration
+
+`Teams::App.new` reads its configuration from the environment by default; every value can also be passed explicitly as a keyword argument:
+
+| Env var | Keyword | Required | Purpose |
+|---|---|---|---|
+| `CLIENT_ID` | `client_id:` | production | The bot's Microsoft App ID. Used for bot token requests and to validate inbound JWT audiences. |
+| `CLIENT_SECRET` | `client_secret:` | production | The bot's client secret for the client-credentials token flow. |
+| `TENANT_ID` | `tenant_id:` | single-tenant bots | Entra tenant for bot tokens and tenant-issuer JWT validation. |
+| `SERVICE_URL` | `service_url:` | no | Default Bot Framework service URL for proactive sends (defaults to `https://smba.trafficmanager.net/teams`). Inbound requests always use the service URL from the activity. |
+| — | `skip_auth:` | no | Disables inbound request validation. Local development only. |
+| — | `messaging_endpoint:` | no | Inbound path, defaults to `/api/messages`. |
+| — | `logger:`, `storage:`, `cloud:` | no | Logger (defaults to stdout), state store (defaults to the in-memory store), and cloud environment for sovereign clouds. |
+
 For local tests only:
 
 ```ruby
 teams = Teams::App.new(skip_auth: true)
 ```
 
-Production apps should provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`.
+Production apps must provide `CLIENT_ID`, `CLIENT_SECRET`, and `TENANT_ID`. Without credentials the app logs a startup warning and rejects every inbound request unless `skip_auth: true` was set explicitly — the same behavior as the TypeScript, Python, and .NET SDKs.
+
+## Rails
+
+Define the app once (an initializer works well) and route the messaging endpoint to it:
+
+```ruby
+# config/initializers/teams_bot.rb
+TEAMS_BOT = Teams::App.new
+
+TEAMS_BOT.on_message do |ctx|
+  ctx.reply "Hello from Rails"
+end
+```
+
+```ruby
+# config/routes.rb
+post "/api/messages" => TEAMS_BOT.to_rack
+```
+
+Routing the exact path (rather than `mount`) keeps the request's full path intact, which the endpoint check relies on. If you prefer `mount`, mount at root — `mount TEAMS_BOT.to_rack => "/"` — and let the SDK's own endpoint matching answer 404 for everything else; register whichever full URL you chose with Teams.
+
+Handlers run inside the web request, so treat them like controller actions: keep them fast, and push slow work (LLM calls, big queries) to a job, then deliver the result proactively with the stored conversation reference. Remember that Bot Framework delivers at-least-once — if a handler's side effect must not repeat, dedupe by `ctx.activity.id` before performing it:
+
+```ruby
+teams.on_message do |ctx|
+  next if ProcessedActivity.exists?(activity_id: ctx.activity.id)
+  ProcessedActivity.create!(activity_id: ctx.activity.id)
+
+  answer = Assistant.answer(user: ctx.activity.from.aad_object_id, text: ctx.activity.text)
+  ctx.stream.emit(answer)
+end
+```
+
+## Local development
+
+1. Register a bot (Microsoft's [Teams CLI](https://github.com/microsoft/teams-sdk) or the Developer Portal) and note the client id, client secret, and tenant id. Put them in `.env` as `CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`.
+2. Expose your local port with a persistent tunnel, e.g. Dev Tunnels: `devtunnel create teams-bot -a && devtunnel port create teams-bot -p 3978`, then `devtunnel host teams-bot`.
+3. Set the bot's messaging endpoint to `https://<your-tunnel>/api/messages` in the bot registration, and install the app in Teams.
+4. Run the app: `bundle exec rackup -p 3978 -o 0.0.0.0`. Inbound requests are JWT-validated with your real credentials — no `skip_auth` needed behind a tunnel.
+
+If the tunnel URL is stable (Dev Tunnels URLs are), steps 1–3 are one-time setup.
+
+## API reference
+
+| Surface | Methods |
+|---|---|
+| Routing | `teams.on_message(pattern = nil)`, `on_message_update`, `on_edit_message`, `on_undelete_message`, `on_dialog_open(dialog_id = nil)`, `on_dialog_submit(action = nil)`, `on_message_ext_*` (nine composeExtension routes), `on_meeting_start`, `on_meeting_end`, `on_message_submit_feedback`, `on_suggested_action_submit`, `on(type)` (escape hatch), `use` (middleware, `(ctx, next)`) |
+| Context (`ctx`) | `activity`, `ref` / `conversation_reference`, `post`, `reply`, `quote(message_id, ...)`, `update(activity_id, ...)`, `typing(text = nil)`, `stream` (`emit`, `update`, `clear_text`, `close`, `on_chunk`, `on_close`), `api`, `storage`, `log` |
+| Proactive (`teams`) | `post(conversation_id, activity)`, `reply(conversation_id, activity_id, activity)`, `update(conversation_id, activity_id, activity)`, `send_activity(reference, activity)` |
+| API client (`teams.api`) | `conversations` (`create`, `create_activity`, `reply_to_activity`, `update_activity`, `delete_activity`, targeted variants, `get_members`, `get_member_by_id`, `get_paged_members`, `get_activity_members`, `add_reaction`, `delete_reaction`), `teams` (`get_by_id`, `get_conversations`), `meetings` (`get_by_id`, `get_participant`, `send_notification`) |
+| Sends return | `Teams::Api::SentActivity` (outbound activity merged with the server response; `#id`, `#[]`, `#to_h`) |
+| Auth | Inbound JWTs validated against Bot Framework/Entra issuers, the three audience forms, expiry/nbf, signature, and the `serviceurl` claim. Outbound bot tokens via client-credentials flow, cached with refresh skew. `AuthenticationError` → 401, `BadRequestError` → 400, handler errors → 500 (Bot Framework then redelivers). |

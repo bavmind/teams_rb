@@ -3,14 +3,26 @@
 require_relative "test_helper"
 
 class ReactionClientTest < Minitest::Test
-  def test_api_client_exposes_reactions_client
+  def test_conversations_client_adds_and_deletes_reactions
+    stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+      stub.put("/teams/v3/conversations/conversation-1/activities/activity-1/reactions/like") do
+        [200, { "Content-Type" => "application/json" }, ""]
+      end
+      stub.delete("/teams/v3/conversations/conversation-1/activities/activity-1/reactions/like") do
+        [200, { "Content-Type" => "application/json" }, ""]
+      end
+    end
+    connection = Faraday.new(url: "https://smba.trafficmanager.net/teams") do |faraday|
+      faraday.adapter :test, stubs
+    end
     api = Teams::Api::Client.new(
       service_url: "https://smba.trafficmanager.net/teams",
-      http: Teams::Common::HttpClient.new
+      http: Teams::Common::HttpClient.new(connection:)
     )
 
-    assert_instance_of Teams::Api::ReactionClient, api.reactions
-    assert_same api.reactions, api.reactions
+    assert_nil api.conversations.add_reaction("conversation-1", "activity-1", "like")
+    assert_nil api.conversations.delete_reaction("conversation-1", "activity-1", "like")
+    stubs.verify_stubbed_calls
   end
 
   def test_adds_reaction

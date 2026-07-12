@@ -1,0 +1,448 @@
+[
+ {
+  "spec": {
+   "__class__": "TextBlock",
+   "kwargs": {
+    "text": "hi"
+   }
+  },
+  "expected": {
+   "type": "TextBlock",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "text": "hi",
+   "wrap": false
+  }
+ },
+ {
+  "spec": {
+   "__class__": "TextBlock",
+   "kwargs": {
+    "text": "styled",
+    "size": "Large",
+    "weight": "Bolder",
+    "wrap": true,
+    "color": "Attention"
+   }
+  },
+  "expected": {
+   "type": "TextBlock",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "text": "styled",
+   "size": "Large",
+   "weight": "Bolder",
+   "color": "Attention",
+   "wrap": true
+  }
+ },
+ {
+  "spec": {
+   "__class__": "Image",
+   "kwargs": {
+    "url": "https://example.com/x.png",
+    "alt_text": "a picture"
+   }
+  },
+  "expected": {
+   "type": "Image",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "spacing": "Default",
+   "isSortKey": false,
+   "url": "https://example.com/x.png",
+   "altText": "a picture",
+   "style": "Default",
+   "size": "Auto",
+   "width": "auto",
+   "allowExpand": false,
+   "fitMode": "Fill",
+   "horizontalContentAlignment": "Left",
+   "verticalContentAlignment": "Top",
+   "height": "auto"
+  }
+ },
+ {
+  "spec": {
+   "__class__": "AdaptiveCard",
+   "kwargs": {
+    "body": [
+     {
+      "__class__": "TextBlock",
+      "kwargs": {
+       "text": "hello"
+      }
+     },
+     {
+      "__class__": "Image",
+      "kwargs": {
+       "url": "https://example.com/x.png"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "AdaptiveCard",
+   "requires": {},
+   "isSortKey": false,
+   "version": "1.5",
+   "body": [
+    {
+     "type": "TextBlock",
+     "requires": {},
+     "isVisible": true,
+     "separator": false,
+     "height": "auto",
+     "spacing": "Default",
+     "isSortKey": false,
+     "text": "hello",
+     "wrap": false
+    },
+    {
+     "type": "Image",
+     "requires": {},
+     "isVisible": true,
+     "separator": false,
+     "spacing": "Default",
+     "isSortKey": false,
+     "url": "https://example.com/x.png",
+     "style": "Default",
+     "size": "Auto",
+     "width": "auto",
+     "allowExpand": false,
+     "fitMode": "Fill",
+     "horizontalContentAlignment": "Left",
+     "verticalContentAlignment": "Top",
+     "height": "auto"
+    }
+   ]
+  }
+ },
+ {
+  "spec": {
+   "__class__": "Container",
+   "kwargs": {
+    "items": [
+     {
+      "__class__": "TextBlock",
+      "kwargs": {
+       "text": "inner"
+      }
+     }
+    ],
+    "style": "emphasis"
+   }
+  },
+  "expected": {
+   "type": "Container",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "style": "emphasis",
+   "showBorder": false,
+   "roundedCorners": false,
+   "bleed": false,
+   "items": [
+    {
+     "type": "TextBlock",
+     "requires": {},
+     "isVisible": true,
+     "separator": false,
+     "height": "auto",
+     "spacing": "Default",
+     "isSortKey": false,
+     "text": "inner",
+     "wrap": false
+    }
+   ]
+  }
+ },
+ {
+  "spec": {
+   "__class__": "ColumnSet",
+   "kwargs": {
+    "columns": [
+     {
+      "__class__": "Column",
+      "kwargs": {
+       "items": [
+        {
+         "__class__": "TextBlock",
+         "kwargs": {
+          "text": "col"
+         }
+        }
+       ],
+       "width": "stretch"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "ColumnSet",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "showBorder": false,
+   "roundedCorners": false,
+   "bleed": false,
+   "columns": [
+    {
+     "type": "Column",
+     "requires": {},
+     "isVisible": true,
+     "separator": false,
+     "height": "auto",
+     "spacing": "Default",
+     "isSortKey": false,
+     "showBorder": false,
+     "roundedCorners": false,
+     "bleed": false,
+     "width": "stretch",
+     "items": [
+      {
+       "type": "TextBlock",
+       "requires": {},
+       "isVisible": true,
+       "separator": false,
+       "height": "auto",
+       "spacing": "Default",
+       "isSortKey": false,
+       "text": "col",
+       "wrap": false
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "spec": {
+   "__class__": "FactSet",
+   "kwargs": {
+    "facts": [
+     {
+      "__class__": "Fact",
+      "kwargs": {
+       "title": "Status",
+       "value": "Green"
+      }
+     },
+     {
+      "__class__": "Fact",
+      "kwargs": {
+       "title": "Owner",
+       "value": "Devran"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "FactSet",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "facts": [
+    {
+     "title": "Status",
+     "value": "Green"
+    },
+    {
+     "title": "Owner",
+     "value": "Devran"
+    }
+   ]
+  }
+ },
+ {
+  "spec": {
+   "__class__": "TextInput",
+   "kwargs": {
+    "id": "name",
+    "label": "Name",
+    "is_required": true
+   }
+  },
+  "expected": {
+   "type": "Input.Text",
+   "id": "name",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "label": "Name",
+   "isRequired": true,
+   "isMultiline": false,
+   "style": "Text"
+  }
+ },
+ {
+  "spec": {
+   "__class__": "ChoiceSetInput",
+   "kwargs": {
+    "id": "pick",
+    "choices": [
+     {
+      "__class__": "Choice",
+      "kwargs": {
+       "title": "Yes",
+       "value": "y"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "Input.ChoiceSet",
+   "id": "pick",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "isRequired": false,
+   "choices": [
+    {
+     "title": "Yes",
+     "value": "y"
+    }
+   ],
+   "style": "compact",
+   "isMultiSelect": false,
+   "wrap": true,
+   "useMultipleColumns": false
+  }
+ },
+ {
+  "spec": {
+   "__class__": "ActionSet",
+   "kwargs": {
+    "actions": [
+     {
+      "__class__": "SubmitAction",
+      "kwargs": {
+       "title": "Send",
+       "data": {
+        "kind": "submit"
+       }
+      }
+     },
+     {
+      "__class__": "OpenUrlAction",
+      "kwargs": {
+       "title": "Open",
+       "url": "https://example.com"
+      }
+     }
+    ]
+   }
+  },
+  "expected": {
+   "type": "ActionSet",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "actions": [
+    {
+     "type": "Action.Submit",
+     "requires": {},
+     "title": "Send",
+     "style": "default",
+     "mode": "primary",
+     "isEnabled": true,
+     "data": {
+      "kind": "submit"
+     },
+     "conditionallyEnabled": false
+    },
+    {
+     "type": "Action.OpenUrl",
+     "requires": {},
+     "title": "Open",
+     "style": "default",
+     "mode": "primary",
+     "isEnabled": true,
+     "url": "https://example.com"
+    }
+   ]
+  }
+ },
+ {
+  "spec": {
+   "__class__": "ExecuteAction",
+   "kwargs": {
+    "title": "Run",
+    "verb": "do-it",
+    "data": {
+     "a": 1
+    }
+   }
+  },
+  "expected": {
+   "type": "Action.Execute",
+   "requires": {},
+   "title": "Run",
+   "style": "default",
+   "mode": "primary",
+   "isEnabled": true,
+   "data": {
+    "a": 1
+   },
+   "conditionallyEnabled": false,
+   "verb": "do-it"
+  }
+ },
+ {
+  "spec": {
+   "__class__": "ToggleInput",
+   "kwargs": {
+    "id": "opt",
+    "title": "Enable?"
+   }
+  },
+  "expected": {
+   "type": "Input.Toggle",
+   "id": "opt",
+   "requires": {},
+   "isVisible": true,
+   "separator": false,
+   "height": "auto",
+   "spacing": "Default",
+   "isSortKey": false,
+   "isRequired": false,
+   "value": "false",
+   "title": "Enable?",
+   "valueOn": "true",
+   "valueOff": "false",
+   "wrap": true,
+   "showTitle": true
+  }
+ }
+]

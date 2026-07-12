@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "base64"
+require "json"
+
 module Teams
   class ActivityContext
     attr_reader :app, :activity, :conversation_reference, :extra, :stream
@@ -64,7 +67,110 @@ module Teams
       post(Api::TypingActivity.new(text))
     end
 
+    # Microsoft Graph client with the app's own identity (app-only tokens).
+    def app_graph
+      app.graph
+    end
+
+    # Microsoft Graph client with the signed-in user's token. Raises when
+    # the user is not signed in, like the Python SDK's user_graph.
+    def user_graph(connection_name: nil)
+      @user_graph ||= begin
+        response = api.users.get_token(
+          user_id: activity.from.id,
+          connection_name: connection_name || app.default_connection_name,
+          channel_id: activity.channel_id
+        )
+        raise Error, "User must be signed in to access the Graph client" if response.token.to_s.empty?
+
+        Graph::Client.new(token: response.token, base_url_root: app.graph.base_url_root)
+      rescue HttpError
+        raise Error, "User must be signed in to access the Graph client"
+      end
+    end
+
+    # Starts the user sign-in flow: returns the token if the user is already
+    # signed in, otherwise sends an OAuth card and returns nil. In group
+    # conversations the card goes to a 1:1 conversation with the user (group
+    # OAuth is not supported by Teams), like the TypeScript/Python SDKs.
+    def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
+      connection_name ||= app.default_connection_name
+
+      begin
+        response = api.users.get_token(
+          user_id: activity.from.id,
+          connection_name:,
+          channel_id: activity.channel_id
+        )
+        return response.token if response.token && !response.token.to_s.empty?
+      rescue HttpError
+        # No token yet; continue with the OAuth card flow.
+      end
+
+      conversation_id = conversation_reference.conversation_id
+      if activity.conversation.is_group
+        one_on_one = api.conversations.create(
+          members: [activity.from.to_h],
+          tenant_id: activity.conversation.tenant_id
+        )
+        conversation_id = one_on_one.id
+        post(oauth_card_text)
+      end
+
+      state = Base64.strict_encode64(JSON.generate(
+        "connectionName" => connection_name,
+        "conversation" => conversation_reference.to_h,
+        "msAppId" => app.client_id
+      ))
+      resource = api.bots.sign_in.get_resource(state:)
+
+      card = {
+        "text" => oauth_card_text,
+        "connectionName" => connection_name,
+        "tokenExchangeResource" => resource.token_exchange_resource&.to_h,
+        "tokenPostResource" => resource.token_post_resource&.to_h,
+        "buttons" => [
+          { "type" => "signin", "title" => sign_in_button_text, "value" => resource.sign_in_link }
+        ]
+      }.compact
+
+      payload = {
+        "type" => "message",
+        "recipient" => activity.from.to_h,
+        "attachments" => [
+          { "contentType" => "application/vnd.microsoft.card.oauth", "content" => card }
+        ]
+      }
+
+      app.send_activity(sign_in_reference(conversation_id), payload)
+      nil
+    end
+
+    # Clears the user's token for the connection. Failures are logged, not
+    # raised, matching the TypeScript/Python SDKs.
+    def sign_out(connection_name: nil)
+      api.users.sign_out(
+        user_id: activity.from.id,
+        connection_name: connection_name || app.default_connection_name,
+        channel_id: activity.channel_id
+      )
+      nil
+    rescue HttpError => error
+      log&.error("Failed to sign out user: #{error.message}")
+      nil
+    end
+
     private
+
+    def sign_in_reference(conversation_id)
+      return conversation_reference if conversation_id == conversation_reference.conversation_id
+
+      Api::ConversationReference.from_h(
+        conversation_reference.to_h.merge(
+          "conversation" => conversation_reference.conversation.to_h.merge("id" => conversation_id)
+        )
+      )
+    end
 
     def incoming_targeted_sender
       return nil unless activity.message?
@@ -157,6 +263,8 @@ module Teams
         Api::MessageActivity.new(activity_or_text)
       when Cards::AdaptiveCard
         Api::MessageActivity.new.add_card(activity_or_text)
+      when Hash
+        Common::Hashes.deep_stringify_keys(activity_or_text)
       else
         activity_or_text
       end
