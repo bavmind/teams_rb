@@ -1,16 +1,18 @@
 # Running in Teams
 
-Connect your locally running bot to a real Teams client.
+Connect your locally running bot to a real Teams client with the [Teams CLI](https://www.npmjs.com/package/@microsoft/teams.cli).
 
-## 1. Register a bot
+## 1. Install and sign in
 
-Create a Teams app with a bot in the [Teams Developer Portal](https://dev.teams.microsoft.com) (or with Microsoft's Teams CLI). You need three values for the app's environment:
+The CLI requires Node.js 20 or newer:
 
-- `CLIENT_ID` — the bot's Microsoft App ID
-- `CLIENT_SECRET` — a client secret for that app registration
-- `TENANT_ID` — your Entra tenant ID (single-tenant bots)
+```sh
+npm install -g @microsoft/teams.cli
+teams login
+teams status
+```
 
-> If you plan to use [user authentication](../in-depth-guides/user-authentication.md), register the bot as an **Azure Bot resource** from the start (Azure portal → Create resource → Azure Bot → "Use existing app registration"). OAuth connection settings only exist there, and converting a Developer Portal registration later means deleting and recreating it.
+`teams status` should report that sideloading is enabled. If it is disabled, your tenant administrator must enable custom app upload before you can install the bot.
 
 ## 2. Start a tunnel
 
@@ -22,23 +24,44 @@ devtunnel port create teams-bot -p 3978
 devtunnel host teams-bot
 ```
 
-Note the tunnel URL, e.g. `https://abc123-3978.euw.devtunnels.ms`. Dev Tunnels URLs are stable across restarts, so this is one-time setup.
+Note the tunnel URL, such as `https://abc123-3978.euw.devtunnels.ms`. Dev Tunnels URLs are stable across restarts, so creation is a one-time step.
 
-## 3. Point the bot at the tunnel
+## 3. Register the app and bot
 
-In the bot registration, set the **messaging endpoint** to `https://<your-tunnel>/api/messages`, and make sure the **Microsoft Teams channel** is enabled.
+From your project directory, pass the public endpoint to the CLI:
+
+```sh
+teams app create \
+  --name my-teams-ruby-bot \
+  --endpoint https://<your-tunnel>/api/messages
+```
+
+The CLI creates the app registration, manifest, bot, and Teams app. It prints the Teams App ID, an **Install in Teams** link, and the three values your Ruby app needs:
+
+- `CLIENT_ID` — the bot's Microsoft App ID
+- `CLIENT_SECRET` — the bot's client secret
+- `TENANT_ID` — the Entra tenant ID
+
+> If you plan to use [user authentication](../in-depth-guides/user-authentication.md), create an Azure-hosted bot with the CLI's `--azure`, `--subscription`, and `--resource-group` options. OAuth connection settings are not available for Teams-managed bots.
+
+You can instead configure the same resources manually in the [Teams Developer Portal](https://dev.teams.microsoft.com/apps).
 
 ## 4. Run and install
 
+Start the bot with the credentials printed by the CLI:
+
 ```sh
-bundle exec rackup -p 3978 -o 0.0.0.0
+CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec puma -p 3978
 ```
 
-Install the app in Teams (Developer Portal → Preview in Teams) and send it a message. Inbound requests are JWT-validated with your real credentials — no `skip_auth` needed behind a tunnel.
+Open the **Install in Teams** link and send the bot a message. If you need the link again, run `teams app get <teams-app-id> --install-link`.
+
+Inbound requests are JWT-validated with your real credentials; no `skip_auth` is needed behind the tunnel.
 
 ## Troubleshooting
 
-- **No response in Teams**: check the messaging endpoint URL, the Teams channel, and that the tunnel and server are both running. The app logs every inbound activity at debug level and every rejected request at warn level.
-- **401s in your logs**: the requests are reaching you but failing validation — usually a `CLIENT_ID`/`TENANT_ID` mismatch with the registration.
+- **No response in Teams**: run `teams app doctor <teams-app-id>`, then check that the tunnel and server are running.
+- **401s in your logs**: the requests are reaching you but failing validation, usually because the running app has credentials from a different registration.
+- **Sideloading disabled**: ask your tenant administrator to enable custom app upload.
 - **Teams caches aggressively**: after manifest changes, fully quit and reopen the Teams client.
 - **At-least-once delivery**: Bot Framework redelivers activities when your bot errors or responds slowly. If a handler's side effects must not repeat, deduplicate by `ctx.activity.id`.

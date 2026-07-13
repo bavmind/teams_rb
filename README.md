@@ -14,15 +14,16 @@ A Ruby-native port of the Microsoft Teams SDKs for building Teams bots and apps 
 ### Prerequisites
 
 - Ruby 4.0 or newer
-- A Microsoft 365 tenant where you can register a Teams app
+- A Microsoft 365 tenant with custom app upload enabled
 - A public HTTPS tunnel for local development, such as [Dev Tunnels](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started)
 
 ### Install
 
-Add the gem to your `Gemfile`:
+Add the SDK and a Rack server for this standalone example to your `Gemfile`:
 
 ```ruby
 gem "teams_rb"
+gem "puma"
 ```
 
 Then install it:
@@ -48,30 +49,52 @@ end
 run teams.to_rack
 ```
 
-Run the app with the credentials from your bot registration:
+### Register it with Teams
+
+The easiest registration path is the optional [Teams CLI](https://www.npmjs.com/package/@microsoft/teams.cli), which requires Node.js 20 or newer. Install it, sign in, and check that your tenant allows sideloading:
 
 ```sh
-CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec rackup -p 3978 -o 0.0.0.0
+npm install -g @microsoft/teams.cli
+teams login
+teams status
 ```
 
-The bot receives Teams activities at `POST /api/messages`, validates each request, and replies to incoming messages.
+Start your HTTPS tunnel, then let the CLI create the app, bot registration, and install link:
 
-### Connect it to Teams
+```sh
+teams app create \
+  --name my-teams-ruby-bot \
+  --endpoint https://<your-tunnel>/api/messages
+```
 
-1. Create and configure the bot with the [Teams CLI](https://www.npmjs.com/package/@microsoft/teams.cli), or use the [Teams Developer Portal](https://dev.teams.microsoft.com/apps) and enable the Microsoft Teams channel manually.
-2. Expose port `3978` through your HTTPS tunnel.
-3. Set the bot's messaging endpoint to `https://<your-tunnel>/api/messages`, install the app in Teams, and send it a message.
+The command prints `CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`, and an **Install in Teams** link. You can also create the app manually in the [Teams Developer Portal](https://dev.teams.microsoft.com/apps).
+
+### Run it
+
+This standalone example uses Puma; `teams_rb` itself does not require a server gem. Start the bot with the credentials printed by the CLI:
+
+```sh
+CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec puma -p 3978
+```
+
+Open the install link and send the bot a message. It receives Teams activities at `POST /api/messages`, validates each request, and replies to incoming messages.
 
 See [Running in Teams](docs/getting-started/running-in-teams.md) for the complete registration, tunnel, and installation walkthrough.
 
 ## Code basics
 
-Use `ctx.post` to send a message to the conversation and `ctx.reply` for a Teams quoted reply:
+Handlers can match message text and respond with typed Adaptive Cards:
 
 ```ruby
-teams.on_message do |ctx|
-  ctx.post "A message in the conversation"
-  ctx.reply "A reply quoting your message"
+teams.on_message(/^status$/i) do |ctx|
+  ctx.typing
+
+  card = Teams::Cards::AdaptiveCard.new(
+    Teams::Cards::TextBlock.new("Service status", size: "Large", weight: "Bolder"),
+    Teams::Cards::TextBlock.new("All systems operational.", wrap: true)
+  )
+
+  ctx.post card
 end
 ```
 
@@ -81,11 +104,14 @@ For Rails, define one `Teams::App` instance during boot and route `POST /api/mes
 
 ## Feature status
 
+This table tracks supported Teams SDK capabilities. Deprecated upstream AI and devtools packages are intentionally excluded.
+
 | Feature | Status | Guide |
 |---|---|---|
 | App setup and Rack/Rails integration | ✅ Done | [App basics](docs/essentials/app-basics.md) |
 | Activity routing and middleware | ✅ Done | [Listening to activities](docs/essentials/on-activity.md) |
 | App and error events | ✅ Done | [Listening to events](docs/essentials/on-event.md) |
+| Typed activity models and raw payload access | ✅ Done | [Code basics](docs/getting-started/code-basics.md) |
 | Posts, replies, updates, typing, formatting, mentions, citations, and labels | ✅ Done | [Sending messages](docs/essentials/sending-messages.md) |
 | Proactive messaging and conversation references | ✅ Done | [Proactive messaging](docs/essentials/proactive-messaging.md) |
 | Conversations, teams, meetings, users, and bot sign-in APIs | ✅ Done | [API client](docs/essentials/api-client.md) |
@@ -109,6 +135,7 @@ For Rails, define one `Teams::App` instance during boot and route `POST /api/mes
 - [Essentials](docs/essentials/README.md) — app setup, activities, sending, proactive messaging, API clients, authentication, and Graph
 - [In-depth guides](docs/in-depth-guides/README.md) — cards, dialogs, extensions, streaming, user authentication, tabs, and events
 - [Examples](examples/README.md) — runnable Rack apps for common SDK features
+- [Changelog](CHANGELOG.md) — release history
 
 ## Development
 
@@ -117,12 +144,6 @@ Install dependencies and run the Minitest suite:
 ```sh
 bundle install
 bundle exec rake test
-```
-
-Run the basic echo example:
-
-```sh
-bundle exec rackup examples/basic_echo.ru -p 3978
 ```
 
 The gem is self-contained. Regenerating the typed Adaptive Card classes requires a sibling checkout of Microsoft's Python SDK; see the [Adaptive Cards guide](docs/in-depth-guides/adaptive-cards.md#regenerating).

@@ -5,16 +5,17 @@ Build and run your first Teams bot in Ruby.
 ## Prerequisites
 
 - Ruby 4.0+
-- A Microsoft 365 tenant where you can register a Teams app ([developer program](https://developer.microsoft.com/microsoft-365/dev-program) tenants work)
+- A Microsoft 365 tenant with custom app upload enabled ([developer program](https://developer.microsoft.com/microsoft-365/dev-program) tenants work)
 - A tunnel for local development ([Dev Tunnels](https://learn.microsoft.com/azure/developer/dev-tunnels/get-started), ngrok, or similar)
 
 ## Install
 
-Add the gem to your project:
+Add the SDK and a Rack server for this standalone example:
 
 ```ruby
 # Gemfile
 gem "teams_rb"
+gem "puma"
 ```
 
 ```sh
@@ -38,10 +39,10 @@ end
 run teams.to_rack
 ```
 
-And run it:
+This example uses Puma; `teams_rb` itself does not require a server gem. Run it with:
 
 ```sh
-CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec rackup -p 3978 -o 0.0.0.0
+CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec puma -p 3978
 ```
 
 The app listens for Teams activities on `POST /api/messages`, validates every inbound request against Microsoft's signing keys, and echoes any message back as a quoted reply.

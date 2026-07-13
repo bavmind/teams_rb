@@ -1,9 +1,9 @@
 # teams_rb examples
 
-Each example is a Rack app. Run one with:
+Each example is a Rack app. Use any Rack server; for example, with Puma:
 
 ```sh
-bundle exec rackup examples/basic_echo.ru -p 3978
+bundle exec puma examples/basic_echo.ru -p 3978
 ```
 
 Use the public tunnel URL as the Teams bot messaging endpoint:
