@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file. The format foll
 
 - `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
 
+### Fixed
+
+- Streamed activities (typing chunks, the final message, and the timed-out in-place update) now carry `replyToId` referencing the inbound activity, threading them under the triggering message like the TypeScript SDK (restores Bot Framework v1 behavior)
+
 ## [2.0.1] - 2026-07-13
 
 ### Fixed

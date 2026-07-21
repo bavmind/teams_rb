@@ -456,6 +456,8 @@ class AppTest < Minitest::Test
     assert_equal 1, first.dig("channelData", "streamSequence")
     assert_equal "streaming", first.dig("channelData", "streamType")
     assert_equal "streaminfo", first["entities"].first["type"]
+    # Every streamed activity replies to the inbound message, like TypeScript.
+    assert_equal(%w[activity-1] * 3, [first, second, final].map { |sent| sent["replyToId"] })
 
     assert_equal "typing", second["type"]
     assert_equal "Hello, world", second["text"]
@@ -703,6 +705,7 @@ class AppTest < Minitest::Test
     assert_equal "message", final["type"]
     assert_equal "Hello, world", final["text"]
     assert_equal "sent-1", final["id"]
+    assert_equal "activity-1", final["replyToId"]
     refute final.key?("channelData")
     refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
   end
