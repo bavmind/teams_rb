@@ -5,6 +5,9 @@ require "logger"
 module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
+    DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS_ENV_VAR = "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"
+    TRUE_ENV_VALUES = %w[1 true yes on].freeze
+    FALSE_ENV_VALUES = %w[0 false no off].freeze
 
     attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph
 
@@ -22,7 +25,8 @@ module Teams
       storage: Storage::MemoryStore.new,
       api: nil,
       token_manager: nil,
-      skip_auth: false,
+      dangerously_allow_unauthenticated_requests: nil,
+      skip_auth: nil,
       messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT,
       default_connection_name: "graph"
     )
@@ -33,7 +37,9 @@ module Teams
       @logger = logger
       @storage = storage
       @cloud = cloud
-      @skip_auth = skip_auth
+      @dangerously_allow_unauthenticated_requests = resolve_unauthenticated_requests_option(
+        dangerously_allow_unauthenticated_requests, skip_auth
+      )
       @messaging_endpoint = normalize_messaging_endpoint(messaging_endpoint)
       @router = Router.new
 
@@ -487,28 +493,53 @@ module Teams
       end
     end
 
+    # Resolves the auth-bypass setting like the Python SDK: the explicit
+    # option wins, then the deprecated skip_auth alias, then the env var,
+    # defaulting to false. Passing skip_auth always warns, even when the
+    # new option overrides it.
+    def resolve_unauthenticated_requests_option(explicit, skip_auth)
+      unless skip_auth.nil?
+        warn("skip_auth is deprecated; use dangerously_allow_unauthenticated_requests instead.", uplevel: 2)
+      end
+      return explicit unless explicit.nil?
+      return skip_auth unless skip_auth.nil?
+
+      parse_bool_env_var(DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS_ENV_VAR) || false
+    end
+
+    def parse_bool_env_var(name)
+      value = ENV[name].to_s.strip.downcase
+      return nil if value.empty?
+      return true if TRUE_ENV_VALUES.include?(value)
+      return false if FALSE_ENV_VALUES.include?(value)
+
+      raise ArgumentError, "#{name} must be a boolean value: true/false, 1/0, yes/no, or on/off."
+    end
+
     # The same two startup warnings the TypeScript, Python, and .NET SDKs
     # log when no credentials are configured. Settled 2026-07-12: exact
-    # upstream branches only; credentials-plus-skip_auth stays silent like
+    # upstream branches only; credentials-plus-bypass stays silent like
     # the other SDKs.
     def warn_missing_credentials
       return if @token_manager.client_id
 
-      if @skip_auth
+      if @dangerously_allow_unauthenticated_requests
         logger&.warn(
           "No credentials configured (CLIENT_ID / CLIENT_SECRET / TENANT_ID), " \
-          "but skip_auth is enabled. Bot will accept unauthenticated requests on #{@messaging_endpoint}."
+          "but dangerously_allow_unauthenticated_requests is enabled. " \
+          "Bot will accept unauthenticated requests on #{@messaging_endpoint}."
         )
       else
         logger&.warn(
-          "No credentials configured and skip_auth is not enabled. All incoming requests will be rejected. " \
-          "Configure client authentication to securely receive messages, or set skip_auth: true for local development."
+          "No credentials configured and dangerously_allow_unauthenticated_requests is not enabled. " \
+          "All incoming requests will be rejected. Configure client authentication to securely receive " \
+          "messages, or set dangerously_allow_unauthenticated_requests: true for local development."
         )
       end
     end
 
     def validate_inbound!(env, activity)
-      return if @skip_auth
+      return if @dangerously_allow_unauthenticated_requests
 
       raise AuthenticationError, "CLIENT_ID is required for inbound validation" unless @jwt_validator
 

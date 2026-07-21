@@ -12,7 +12,7 @@ Every `POST /api/messages` request must carry a Bot Framework JWT. The app valid
 - **Expiry / not-before**
 - **`serviceurl` claim** — must match the activity's service URL, preventing spoofed routing
 
-Rejected requests get a 401 with a warn log line. Requests are rejected wholesale when no credentials are configured (with a loud startup warning) unless `skip_auth: true` is set explicitly — which is for local development only.
+Rejected requests get a 401 with a warn log line. Requests are rejected wholesale when no credentials are configured (with a loud startup warning) unless `dangerously_allow_unauthenticated_requests: true` is set explicitly — which is for local development only. The option can also come from the `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` environment variable (`true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off`); the older `skip_auth:` name still works as a deprecated alias.
 
 ## Outbound bot tokens
 

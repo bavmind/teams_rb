@@ -9,7 +9,7 @@ class AppTest < Minitest::Test
     @log_output = StringIO.new
     @logger = Logger.new(@log_output)
     @api = FakeApi.new
-    @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
+    @teams = Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, logger: @logger)
   end
 
   def app
@@ -77,7 +77,7 @@ class AppTest < Minitest::Test
   end
 
   def test_custom_messaging_endpoint
-    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming", logger: @logger)
+    @teams = Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, messaging_endpoint: "/bot/incoming", logger: @logger)
     @teams.on_message { |ctx| ctx.post "custom route" }
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
@@ -90,7 +90,7 @@ class AppTest < Minitest::Test
 
   def test_messaging_endpoint_must_be_an_absolute_path
     error = assert_raises(ArgumentError) do
-      Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "api/messages")
+      Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, messaging_endpoint: "api/messages")
     end
 
     assert_equal "messaging_endpoint must be a non-empty path starting with '/'", error.message
@@ -1377,12 +1377,14 @@ class AppTest < Minitest::Test
     Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))
 
     assert_includes output.string, "All incoming requests will be rejected"
+    assert_includes output.string, "set dangerously_allow_unauthenticated_requests: true for local development"
   end
 
-  def test_warns_at_startup_without_credentials_when_skip_auth_enabled
+  def test_warns_at_startup_without_credentials_when_bypass_enabled
     output = StringIO.new
-    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, skip_auth: true, logger: Logger.new(output))
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(output))
 
+    assert_includes output.string, "dangerously_allow_unauthenticated_requests is enabled"
     assert_includes output.string, "accept unauthenticated requests on /api/messages"
   end
 
@@ -1391,6 +1393,72 @@ class AppTest < Minitest::Test
     Teams::App.new(client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: Logger.new(output))
 
     refute_includes output.string, "No credentials configured"
+  end
+
+  def test_skip_auth_is_a_deprecated_alias
+    _out, err = capture_io do
+      @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
+    end
+
+    assert_includes err, "skip_auth is deprecated; use dangerously_allow_unauthenticated_requests instead."
+
+    @teams.on_message { |ctx| ctx.post "ok" }
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+  end
+
+  def test_explicit_option_beats_deprecated_skip_auth_alias
+    _out, err = capture_io do
+      @teams = Teams::App.new(
+        api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant",
+        dangerously_allow_unauthenticated_requests: false, skip_auth: true, logger: @logger
+      )
+    end
+
+    assert_includes err, "skip_auth is deprecated"
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 401, last_response.status
+  end
+
+  def test_env_var_enables_unauthenticated_requests
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "true"
+    @teams = Teams::App.new(api: @api, logger: @logger)
+    @teams.on_message { |ctx| ctx.post "ok" }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
+  end
+
+  def test_explicit_option_beats_env_var
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "true"
+    @teams = Teams::App.new(
+      api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant",
+      dangerously_allow_unauthenticated_requests: false, logger: @logger
+    )
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 401, last_response.status
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
+  end
+
+  def test_invalid_env_var_value_raises
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "maybe"
+    error = assert_raises(ArgumentError) { Teams::App.new(api: @api, logger: @logger) }
+
+    assert_equal(
+      "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS must be a boolean value: true/false, 1/0, yes/no, or on/off.",
+      error.message
+    )
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
   end
 
   def test_typing_accepts_optional_text
@@ -1415,7 +1483,7 @@ class AppTest < Minitest::Test
   private
 
   def build_stream(api)
-    teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
+    teams = Teams::App.new(api:, dangerously_allow_unauthenticated_requests: true, logger: @logger)
     activity = Teams::Activity.new(teams_payload)
     conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
     fast_stream(Teams::HttpStream.new(app: teams, conversation_reference:))

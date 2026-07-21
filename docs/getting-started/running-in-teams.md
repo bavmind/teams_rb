@@ -56,7 +56,7 @@ CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec puma -p 3978
 
 Open the **Install in Teams** link and send the bot a message. If you need the link again, run `teams app get <teams-app-id> --install-link`.
 
-Inbound requests are JWT-validated with your real credentials; no `skip_auth` is needed behind the tunnel.
+Inbound requests are JWT-validated with your real credentials; no `dangerously_allow_unauthenticated_requests` is needed behind the tunnel.
 
 ## Troubleshooting
 

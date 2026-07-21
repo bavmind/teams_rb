@@ -9,6 +9,11 @@ All notable changes to this project are documented in this file. The format foll
 ### Added
 
 - `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
+- `dangerously_allow_unauthenticated_requests:` App option and the `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` environment variable replace `skip_auth:` for disabling inbound validation, following the same rename in the TypeScript, Python, and .NET SDKs
+
+### Deprecated
+
+- `skip_auth:` still works as an alias for `dangerously_allow_unauthenticated_requests:` but emits a deprecation warning
 
 ### Fixed
 
