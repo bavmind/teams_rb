@@ -3,6 +3,7 @@
 module Teams
   module Api
     class MessageActivity
+      # "extendedmarkdown" is in public preview and may be subject to change.
       TEXT_FORMATS = %w[plain markdown xml extendedmarkdown].freeze
       FEEDBACK_MODES = %w[default custom].freeze
       AI_MESSAGE_ENTITY_TYPE = "https://schema.org/Message"
