@@ -3,6 +3,10 @@
 module Teams
   module Api
     class ChannelData < Model
+      def app
+        wrap(read("app"), AppInfo)
+      end
+
       def tenant
         wrap(read("tenant"), TenantInfo)
       end
@@ -55,6 +59,7 @@ module Teams
 
       def to_h
         body = raw.dup
+        body["app"] = app.to_h if app
         body["tenant"] = tenant.to_h if tenant
         body["team"] = team.to_h if team
         body["channel"] = channel.to_h if channel

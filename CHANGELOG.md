@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
+
 ## [2.0.1] - 2026-07-13
 
 ### Fixed

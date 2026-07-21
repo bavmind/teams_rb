@@ -34,6 +34,7 @@ class ActivityModelsTest < Minitest::Test
     activity = Teams::Activity.new(
       teams_payload.merge(
         "channelData" => {
+          "app" => { "id" => "app-1", "version" => "1.2.0" },
           "tenant" => { "id" => "tenant-1" },
           "team" => { "id" => "team-1", "teamType" => "standard" },
           "channel" => { "id" => "channel-1", "type" => "standard" },
@@ -44,6 +45,9 @@ class ActivityModelsTest < Minitest::Test
     )
 
     assert_instance_of Teams::Api::ChannelData, activity.channel_data
+    assert_instance_of Teams::Api::AppInfo, activity.channel_data.app
+    assert_equal "app-1", activity.channel_data.app.id
+    assert_equal "1.2.0", activity.channel_data.app.version
     assert_instance_of Teams::Api::TenantInfo, activity.channel_data.tenant
     assert_equal "tenant-1", activity.channel_data.tenant.id
     assert_instance_of Teams::Api::TeamInfo, activity.channel_data.team
