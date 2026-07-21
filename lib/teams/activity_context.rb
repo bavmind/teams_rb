@@ -93,8 +93,11 @@ module Teams
 
     # Starts the user sign-in flow: returns the token if the user is already
     # signed in, otherwise sends an OAuth card and returns nil. In group
-    # conversations the card goes to a 1:1 conversation with the user (group
-    # OAuth is not supported by Teams), like the TypeScript/Python SDKs.
+    # chats and channels the card goes into the conversation as a targeted
+    # message visible only to the requesting user, like the Python and .NET
+    # SDKs (TypeScript still routes group sign-in through a 1:1 chat).
+    # Channels omit the token exchange resource: channel scope cannot do the
+    # silent SSO exchange, so the card renders the sign-in button instead.
     def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
       connection_name ||= app.default_connection_name
 
@@ -109,19 +112,6 @@ module Teams
         # No token yet; continue with the OAuth card flow.
       end
 
-      conversation_id = conversation_reference.conversation_id
-      if activity.conversation.is_group
-        one_on_one = api.conversations.create(
-          members: [activity.from.to_h],
-          tenant_id: activity.conversation.tenant_id
-        )
-        conversation_id = one_on_one.id
-        # Deliberately posts the plain text notice into the group (matching
-        # TypeScript and Python): group chats don't support SSO, so the card
-        # itself goes to the 1:1 below while the group sees only the notice.
-        post(oauth_card_text)
-      end
-
       state = Base64.strict_encode64(JSON.generate(
         "connectionName" => connection_name,
         "conversation" => conversation_reference.to_h,
@@ -129,10 +119,14 @@ module Teams
       ))
       resource = api.bots.sign_in.get_resource(state:)
 
+      is_channel = activity.conversation.conversation_type == "channel"
+      recipient = activity.from.to_h
+      recipient = recipient.merge("isTargeted" => true) if activity.conversation.is_group
+
       card = {
         "text" => oauth_card_text,
         "connectionName" => connection_name,
-        "tokenExchangeResource" => resource.token_exchange_resource&.to_h,
+        "tokenExchangeResource" => (resource.token_exchange_resource&.to_h unless is_channel),
         "tokenPostResource" => resource.token_post_resource&.to_h,
         "buttons" => [
           { "type" => "signin", "title" => sign_in_button_text, "value" => resource.sign_in_link }
@@ -141,13 +135,13 @@ module Teams
 
       payload = {
         "type" => "message",
-        "recipient" => activity.from.to_h,
+        "recipient" => recipient,
         "attachments" => [
           { "contentType" => "application/vnd.microsoft.card.oauth", "content" => card }
         ]
       }
 
-      app.send_activity(sign_in_reference(conversation_id), payload)
+      app.send_activity(conversation_reference, payload)
       nil
     end
 
@@ -166,16 +160,6 @@ module Teams
     end
 
     private
-
-    def sign_in_reference(conversation_id)
-      return conversation_reference if conversation_id == conversation_reference.conversation_id
-
-      Api::ConversationReference.from_h(
-        conversation_reference.to_h.merge(
-          "conversation" => conversation_reference.conversation.to_h.merge("id" => conversation_id)
-        )
-      )
-    end
 
     def incoming_targeted_sender
       return nil unless activity.message?

@@ -1207,10 +1207,52 @@ class AppTest < Minitest::Test
     assert_equal "signin", button["type"]
     assert_includes button["value"], "https://token.botframework.com/signin"
     assert_equal "user-1", outbound.dig("recipient", "id")
+    refute outbound.dig("recipient", "isTargeted")
 
     state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
     assert_equal "custom", state["connectionName"]
     assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_in_in_group_chat_sends_targeted_card_in_conversation
+    @teams.on_message { |ctx| ctx.sign_in }
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("isGroup" => true, "conversationType" => "groupChat")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_empty @api.created_conversations
+    assert_equal 1, @api.targeted_sent.size
+
+    conversation_id, outbound = @api.targeted_sent.first
+    assert_equal "conversation-1", conversation_id
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    card = outbound["attachments"].first["content"]
+    assert_equal "api://botid-x/scope", card.dig("tokenExchangeResource", "uri")
+
+    state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
+    assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_in_in_channel_omits_token_exchange_resource
+    @teams.on_message { |ctx| ctx.sign_in }
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("isGroup" => true, "conversationType" => "channel")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.created_conversations
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    card = outbound["attachments"].first["content"]
+    refute card.key?("tokenExchangeResource")
+    assert card.key?("tokenPostResource")
+    assert_equal "signin", card["buttons"].first["type"]
   end
 
   def test_sign_out_clears_token_for_default_connection

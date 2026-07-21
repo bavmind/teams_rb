@@ -11,6 +11,10 @@ All notable changes to this project are documented in this file. The format foll
 - `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
 - `dangerously_allow_unauthenticated_requests:` App option and the `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` environment variable replace `skip_auth:` for disabling inbound validation, following the same rename in the TypeScript, Python, and .NET SDKs
 
+### Changed
+
+- `ctx.sign_in` in group chats and channels now sends the OAuth card into the conversation as a targeted message visible only to the requesting user, instead of creating a 1:1 chat and posting a notice into the group; channels omit the token exchange resource so the sign-in button renders (silent SSO is not supported in channel scope). Follows the same change in the Python and .NET SDKs
+
 ### Deprecated
 
 - `skip_auth:` still works as an alias for `dangerously_allow_unauthenticated_requests:` but emits a deprecation warning
