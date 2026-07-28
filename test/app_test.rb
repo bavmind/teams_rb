@@ -1373,6 +1373,50 @@ class AppTest < Minitest::Test
     assert_equal %w[feedback other], fired
   end
 
+  def test_card_search_routes_application_search_invokes
+    @teams.on_card_search do |ctx|
+      Teams::Api::SearchResponse.new([
+        Teams::Api::SearchInvokeResult.new(title: "Result for #{ctx.activity.value.query_text}", value: "one"),
+        { "title" => "Two", "value" => "two" }
+      ])
+    end
+
+    payload = message_ext_payload(
+      "application/search",
+      "kind" => "typeahead", "queryText" => "rub", "queryOptions" => { "skip" => 0, "top" => 15 }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal 200, body["statusCode"]
+    assert_equal "application/vnd.microsoft.search.searchResponse", body["type"]
+    assert_equal(
+      [{ "title" => "Result for rub", "value" => "one" }, { "title" => "Two", "value" => "two" }],
+      body.dig("value", "results")
+    )
+  end
+
+  def test_card_search_exposes_query_fields
+    seen = nil
+    @teams.on_card_search do |ctx|
+      value = ctx.activity.value
+      seen = { kind: value.kind, query: value.query_text, dataset: value.dataset,
+               skip: value.query_options.skip, top: value.query_options.top }
+      { "statusCode" => 200 }
+    end
+
+    payload = message_ext_payload(
+      "application/search",
+      "kind" => "typeahead", "queryText" => "ber", "queryOptions" => { "skip" => 5, "top" => 10 },
+      "dataset" => "cities"
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal({ kind: "typeahead", query: "ber", dataset: "cities", skip: 5, top: 10 }, seen)
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }

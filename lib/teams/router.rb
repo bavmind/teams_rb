@@ -72,6 +72,12 @@ module Teams
       register("message.submit", invoke_selector("message/submitAction"), &block)
     end
 
+    # application/search invokes - Adaptive Card dynamic typeahead
+    # Input.ChoiceSet queries (choices.data / Data.Query).
+    def on_card_search(&block)
+      register("card.search", invoke_selector("application/search"), &block)
+    end
+
     # message/submitAction invokes whose actionName is "feedback" - the
     # submissions from add_feedback's thumbs up/down UI.
     def on_message_submit_feedback(&block)

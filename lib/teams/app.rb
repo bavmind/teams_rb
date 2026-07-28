@@ -146,6 +146,14 @@ module Teams
       self
     end
 
+    # application/search invokes from Adaptive Card dynamic typeahead
+    # Input.ChoiceSet queries; the handler's return (Api::SearchResponse or
+    # hash) becomes the invoke response body.
+    def on_card_search(&block)
+      @router.on_card_search(&block)
+      self
+    end
+
     # Called with (ctx, token_response) whenever a sign-in completes through
     # the default token-exchange or verify-state handlers.
     def on_sign_in(&block)
@@ -332,7 +340,8 @@ module Teams
     # ending in ctx.post must not leak the SentActivity into the response.
     def invoke_response_body(result)
       case result
-      when Api::TaskModuleResponse, Api::MessagingExtensionResponse, Api::MessagingExtensionActionResponse
+      when Api::TaskModuleResponse, Api::MessagingExtensionResponse, Api::MessagingExtensionActionResponse,
+           Api::SearchResponse
         result.to_h
       when Hash
         Common::Hashes.deep_stringify_keys(result)

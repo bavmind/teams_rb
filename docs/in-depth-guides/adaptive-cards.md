@@ -48,6 +48,23 @@ end
 
 For richer action flows — opening a modal form from a card button — see [Dialogs](dialogs.md).
 
+## Dynamic typeahead search
+
+An `Input.ChoiceSet` with `choices.data` (`Data.Query`) fetches its choices from your bot as the user types. Teams sends an `application/search` invoke; answer it with `on_card_search`:
+
+```ruby
+teams.on_card_search do |ctx|
+  query = ctx.activity.value.query_text
+  Teams::Api::SearchResponse.new(
+    CITIES.grep(/#{Regexp.escape(query)}/i).map do |city|
+      Teams::Api::SearchInvokeResult.new(title: city, value: city)
+    end
+  )
+end
+```
+
+`ctx.activity.value` also carries `dataset` (the `Data.Query` dataset id, for cards with several dynamic inputs) and `query_options` with `skip`/`top` for paging large result sets.
+
 ## Regenerating
 
 The card classes are generated; don't hand-edit `lib/teams/cards/generated.rb`. To regenerate after an upstream card-model change:
