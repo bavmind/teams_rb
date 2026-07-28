@@ -13,6 +13,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
+- Replies now POST to the conversation's base activities collection, carrying the reply semantics only in the body's `replyToId`; the redundant activity-id path segment is gone, matching the TypeScript, Python, and .NET clients
 - `ctx.sign_in` in group chats and channels now sends the OAuth card into the conversation as a targeted message visible only to the requesting user, instead of creating a 1:1 chat and posting a notice into the group; channels omit the token exchange resource so the sign-in button renders (silent SSO is not supported in channel scope). Follows the same change in the Python and .NET SDKs
 
 ### Deprecated

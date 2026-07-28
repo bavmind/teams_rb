@@ -41,7 +41,9 @@ module Teams
       def reply_to_activity(conversation_id, activity_id, activity, service_url: nil)
         body = activity_to_h(activity)
         body = body.merge("replyToId" => activity_id) if body.is_a?(Hash)
-        path = "/v3/conversations/#{escape(conversation_id)}/activities/#{escape(activity_id)}"
+        # Replies POST to the base activities collection; the reply
+        # semantics ride entirely in the body's replyToId.
+        path = "/v3/conversations/#{escape(conversation_id)}/activities"
         url = absolute(path, service_url:)
         @logger&.debug("Teams API POST #{url}")
         http.post(url, json: body)

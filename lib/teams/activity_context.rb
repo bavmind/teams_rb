@@ -93,11 +93,10 @@ module Teams
 
     # Starts the user sign-in flow: returns the token if the user is already
     # signed in, otherwise sends an OAuth card and returns nil. In group
-    # chats and channels the card goes into the conversation as a targeted
-    # message visible only to the requesting user, like the Python and .NET
-    # SDKs (TypeScript still routes group sign-in through a 1:1 chat).
-    # Channels omit the token exchange resource: channel scope cannot do the
-    # silent SSO exchange, so the card renders the sign-in button instead.
+    # chats and channels the card is a targeted message visible only to the
+    # requesting user; channels omit the token exchange resource because
+    # channel scope cannot do the silent SSO exchange, so the card renders
+    # the sign-in button instead.
     def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
       connection_name ||= app.default_connection_name
 
