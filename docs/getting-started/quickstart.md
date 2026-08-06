@@ -47,7 +47,7 @@ CLIENT_ID=... CLIENT_SECRET=... TENANT_ID=... bundle exec puma -p 3978
 
 The app listens for Teams activities on `POST /api/messages`, validates every inbound request against Microsoft's signing keys, and echoes any message back as a quoted reply.
 
-The three environment variables come from your bot registration — [Running in Teams](running-in-teams.md) walks through creating one and connecting Teams to your locally running bot. For local experiments without credentials, `Teams::App.new(skip_auth: true)` disables inbound validation (never use it beyond local testing; the app logs a loud warning when you do).
+The three environment variables come from your bot registration — [Running in Teams](running-in-teams.md) walks through creating one and connecting Teams to your locally running bot. For local experiments without credentials, `Teams::App.new(dangerously_allow_unauthenticated_requests: true)` disables inbound validation (never use it beyond local testing; the app logs a loud warning when you do). The `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` environment variable sets the same option.
 
 ## Where to go next
 

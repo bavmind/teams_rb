@@ -44,6 +44,35 @@ module Teams
       def end_time
         read("EndTime", "endTime", "end_time")
       end
+
+      # application/search invoke fields (Adaptive Card dynamic typeahead
+      # Input.ChoiceSet queries via choices.data / Data.Query).
+      def query_text
+        read("queryText", "query_text")
+      end
+
+      # Pagination options; skip and top read from the nested wrapper.
+      def query_options
+        value = read("queryOptions", "query_options")
+        value.is_a?(Hash) ? ActivityValue.new(value) : value
+      end
+
+      def kind
+        read("kind")
+      end
+
+      # The Data.Query dataset id authored on the Adaptive Card.
+      def dataset
+        read("dataset")
+      end
+
+      def skip
+        read("skip")
+      end
+
+      def top
+        read("top")
+      end
     end
   end
 end

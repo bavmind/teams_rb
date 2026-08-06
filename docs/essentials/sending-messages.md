@@ -32,6 +32,7 @@ ctx.update sent.id, "Done!"
 ```ruby
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 # text_format: plain | markdown | xml | extendedmarkdown
+# ("extendedmarkdown" is in public preview and may be subject to change)
 
 ctx.post Teams::Api::MessageActivity.new("Quarterly numbers")
   .add_ai_generated                                          # "AI generated" badge

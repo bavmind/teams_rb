@@ -19,7 +19,7 @@ class FunctionTest < Minitest::Test
 
   def setup
     @api = FakeApi.new
-    @teams = Teams::App.new(api: @api, skip_auth: true, logger: Logger.new(StringIO.new))
+    @teams = Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(StringIO.new))
     @teams.instance_variable_set(:@jwt_validator, FakeEntraValidator.new(
       "oid" => "00000000-0000-0000-0000-00000000aaaa",
       "tid" => "00000000-0000-0000-0000-0000000000ff",

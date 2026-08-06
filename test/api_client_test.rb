@@ -225,7 +225,7 @@ class ApiClientTest < Minitest::Test
 
   def test_reply_to_activity_sets_reply_to_id_in_body
     stubs = Faraday::Adapter::Test::Stubs.new do |stub|
-      stub.post("/teams/v3/conversations/conversation-1/activities/activity-1") do |env|
+      stub.post("/teams/v3/conversations/conversation-1/activities") do |env|
         body = JSON.parse(env.body)
         assert_equal "activity-1", body["replyToId"]
         assert_equal "reply text", body["text"]

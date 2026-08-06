@@ -9,7 +9,7 @@ class AppTest < Minitest::Test
     @log_output = StringIO.new
     @logger = Logger.new(@log_output)
     @api = FakeApi.new
-    @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
+    @teams = Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, logger: @logger)
   end
 
   def app
@@ -77,7 +77,7 @@ class AppTest < Minitest::Test
   end
 
   def test_custom_messaging_endpoint
-    @teams = Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "/bot/incoming", logger: @logger)
+    @teams = Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, messaging_endpoint: "/bot/incoming", logger: @logger)
     @teams.on_message { |ctx| ctx.post "custom route" }
 
     post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
@@ -90,7 +90,7 @@ class AppTest < Minitest::Test
 
   def test_messaging_endpoint_must_be_an_absolute_path
     error = assert_raises(ArgumentError) do
-      Teams::App.new(api: @api, skip_auth: true, messaging_endpoint: "api/messages")
+      Teams::App.new(api: @api, dangerously_allow_unauthenticated_requests: true, messaging_endpoint: "api/messages")
     end
 
     assert_equal "messaging_endpoint must be a non-empty path starting with '/'", error.message
@@ -456,6 +456,8 @@ class AppTest < Minitest::Test
     assert_equal 1, first.dig("channelData", "streamSequence")
     assert_equal "streaming", first.dig("channelData", "streamType")
     assert_equal "streaminfo", first["entities"].first["type"]
+    # Every streamed activity replies to the inbound message, like TypeScript.
+    assert_equal(%w[activity-1] * 3, [first, second, final].map { |sent| sent["replyToId"] })
 
     assert_equal "typing", second["type"]
     assert_equal "Hello, world", second["text"]
@@ -703,6 +705,7 @@ class AppTest < Minitest::Test
     assert_equal "message", final["type"]
     assert_equal "Hello, world", final["text"]
     assert_equal "sent-1", final["id"]
+    assert_equal "activity-1", final["replyToId"]
     refute final.key?("channelData")
     refute Array(final["entities"]).any? { |entity| entity["type"] == "streaminfo" }
   end
@@ -1204,10 +1207,52 @@ class AppTest < Minitest::Test
     assert_equal "signin", button["type"]
     assert_includes button["value"], "https://token.botframework.com/signin"
     assert_equal "user-1", outbound.dig("recipient", "id")
+    refute outbound.dig("recipient", "isTargeted")
 
     state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
     assert_equal "custom", state["connectionName"]
     assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_in_in_group_chat_sends_targeted_card_in_conversation
+    @teams.on_message { |ctx| ctx.sign_in }
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("isGroup" => true, "conversationType" => "groupChat")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.sent
+    assert_empty @api.created_conversations
+    assert_equal 1, @api.targeted_sent.size
+
+    conversation_id, outbound = @api.targeted_sent.first
+    assert_equal "conversation-1", conversation_id
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    card = outbound["attachments"].first["content"]
+    assert_equal "api://botid-x/scope", card.dig("tokenExchangeResource", "uri")
+
+    state = JSON.parse(Base64.strict_decode64(@api.bots.states.first))
+    assert_equal "conversation-1", state.dig("conversation", "conversation", "id")
+  end
+
+  def test_sign_in_in_channel_omits_token_exchange_resource
+    @teams.on_message { |ctx| ctx.sign_in }
+
+    payload = teams_payload
+    payload["conversation"] = payload["conversation"].merge("isGroup" => true, "conversationType" => "channel")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.created_conversations
+    assert_equal 1, @api.targeted_sent.size
+
+    outbound = @api.targeted_sent.first[1]
+    assert_equal true, outbound.dig("recipient", "isTargeted")
+    card = outbound["attachments"].first["content"]
+    refute card.key?("tokenExchangeResource")
+    assert card.key?("tokenPostResource")
+    assert_equal "signin", card["buttons"].first["type"]
   end
 
   def test_sign_out_clears_token_for_default_connection
@@ -1328,6 +1373,111 @@ class AppTest < Minitest::Test
     assert_equal %w[feedback other], fired
   end
 
+  def test_card_search_routes_application_search_invokes
+    @teams.on_card_search do |ctx|
+      Teams::Api::SearchResponse.new([
+        Teams::Api::SearchInvokeResult.new(title: "Result for #{ctx.activity.value.query_text}", value: "one"),
+        { "title" => "Two", "value" => "two" }
+      ])
+    end
+
+    payload = message_ext_payload(
+      "application/search",
+      "kind" => "typeahead", "queryText" => "rub", "queryOptions" => { "skip" => 0, "top" => 15 }
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    body = JSON.parse(last_response.body)
+    assert_equal 200, body["statusCode"]
+    assert_equal "application/vnd.microsoft.search.searchResponse", body["type"]
+    assert_equal(
+      [{ "title" => "Result for rub", "value" => "one" }, { "title" => "Two", "value" => "two" }],
+      body.dig("value", "results")
+    )
+  end
+
+  def test_card_search_exposes_query_fields
+    seen = nil
+    @teams.on_card_search do |ctx|
+      value = ctx.activity.value
+      seen = { kind: value.kind, query: value.query_text, dataset: value.dataset,
+               skip: value.query_options.skip, top: value.query_options.top }
+      { "statusCode" => 200 }
+    end
+
+    payload = message_ext_payload(
+      "application/search",
+      "kind" => "typeahead", "queryText" => "ber", "queryOptions" => { "skip" => 5, "top" => 10 },
+      "dataset" => "cities"
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal({ kind: "typeahead", query: "ber", dataset: "cities", skip: 5, top: 10 }, seen)
+  end
+
+  def test_conversation_update_routes_generic_and_by_event_type
+    fired = []
+    # The generic route chains onward like any route: the event-specific
+    # route runs only when the earlier matching handler calls nxt.
+    @teams.on_conversation_update do |ctx, nxt|
+      fired << [:generic, ctx.activity.channel_data.event_type]
+      nxt.call
+    end
+    @teams.on_channel_renamed { |_ctx| fired << :channel_renamed }
+    @teams.on_team_renamed { |_ctx| fired << :team_renamed }
+
+    payload = teams_payload.merge(
+      "type" => "conversationUpdate",
+      "channelData" => { "eventType" => "channelRenamed", "channel" => { "id" => "channel-1" } }
+    )
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [[:generic, "channelRenamed"], :channel_renamed], fired
+  end
+
+  def test_conversation_update_event_routes_cover_channel_and_team_lifecycle
+    fired = []
+    @teams.on_channel_created { |_ctx| fired << "channelCreated" }
+    @teams.on_channel_deleted { |_ctx| fired << "channelDeleted" }
+    @teams.on_channel_restored { |_ctx| fired << "channelRestored" }
+    @teams.on_team_archived { |_ctx| fired << "teamArchived" }
+    @teams.on_team_deleted { |_ctx| fired << "teamDeleted" }
+    @teams.on_team_hard_deleted { |_ctx| fired << "teamHardDeleted" }
+    @teams.on_team_restored { |_ctx| fired << "teamRestored" }
+    @teams.on_team_unarchived { |_ctx| fired << "teamUnarchived" }
+
+    %w[channelCreated channelDeleted channelRestored teamArchived teamDeleted
+       teamHardDeleted teamRestored teamUnarchived].each do |event_type|
+      payload = teams_payload.merge(
+        "type" => "conversationUpdate",
+        "channelData" => { "eventType" => event_type }
+      )
+      payload.delete("text")
+      post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+      assert last_response.ok?
+    end
+
+    assert_equal %w[channelCreated channelDeleted channelRestored teamArchived teamDeleted
+                    teamHardDeleted teamRestored teamUnarchived], fired
+  end
+
+  def test_conversation_update_without_event_type_matches_only_generic_route
+    fired = []
+    @teams.on_conversation_update { |_ctx| fired << :generic }
+    @teams.on_channel_created { |_ctx| fired << :channel_created }
+
+    payload = teams_payload.merge("type" => "conversationUpdate", "membersAdded" => [{ "id" => "user-2" }])
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [:generic], fired
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }
@@ -1374,12 +1524,14 @@ class AppTest < Minitest::Test
     Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, logger: Logger.new(output))
 
     assert_includes output.string, "All incoming requests will be rejected"
+    assert_includes output.string, "set dangerously_allow_unauthenticated_requests: true for local development"
   end
 
-  def test_warns_at_startup_without_credentials_when_skip_auth_enabled
+  def test_warns_at_startup_without_credentials_when_bypass_enabled
     output = StringIO.new
-    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, skip_auth: true, logger: Logger.new(output))
+    Teams::App.new(client_id: nil, client_secret: nil, tenant_id: nil, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(output))
 
+    assert_includes output.string, "dangerously_allow_unauthenticated_requests is enabled"
     assert_includes output.string, "accept unauthenticated requests on /api/messages"
   end
 
@@ -1388,6 +1540,72 @@ class AppTest < Minitest::Test
     Teams::App.new(client_id: "client-id", client_secret: "secret", tenant_id: "tenant", logger: Logger.new(output))
 
     refute_includes output.string, "No credentials configured"
+  end
+
+  def test_skip_auth_is_a_deprecated_alias
+    _out, err = capture_io do
+      @teams = Teams::App.new(api: @api, skip_auth: true, logger: @logger)
+    end
+
+    assert_includes err, "skip_auth is deprecated; use dangerously_allow_unauthenticated_requests instead."
+
+    @teams.on_message { |ctx| ctx.post "ok" }
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+  end
+
+  def test_explicit_option_beats_deprecated_skip_auth_alias
+    _out, err = capture_io do
+      @teams = Teams::App.new(
+        api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant",
+        dangerously_allow_unauthenticated_requests: false, skip_auth: true, logger: @logger
+      )
+    end
+
+    assert_includes err, "skip_auth is deprecated"
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 401, last_response.status
+  end
+
+  def test_env_var_enables_unauthenticated_requests
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "true"
+    @teams = Teams::App.new(api: @api, logger: @logger)
+    @teams.on_message { |ctx| ctx.post "ok" }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
+  end
+
+  def test_explicit_option_beats_env_var
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "true"
+    @teams = Teams::App.new(
+      api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant",
+      dangerously_allow_unauthenticated_requests: false, logger: @logger
+    )
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 401, last_response.status
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
+  end
+
+  def test_invalid_env_var_value_raises
+    ENV["DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"] = "maybe"
+    error = assert_raises(ArgumentError) { Teams::App.new(api: @api, logger: @logger) }
+
+    assert_equal(
+      "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS must be a boolean value: true/false, 1/0, yes/no, or on/off.",
+      error.message
+    )
+  ensure
+    ENV.delete("DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS")
   end
 
   def test_typing_accepts_optional_text
@@ -1412,7 +1630,7 @@ class AppTest < Minitest::Test
   private
 
   def build_stream(api)
-    teams = Teams::App.new(api:, skip_auth: true, logger: @logger)
+    teams = Teams::App.new(api:, dangerously_allow_unauthenticated_requests: true, logger: @logger)
     activity = Teams::Activity.new(teams_payload)
     conversation_reference = Teams::Api::ConversationReference.from_activity(activity)
     fast_stream(Teams::HttpStream.new(app: teams, conversation_reference:))

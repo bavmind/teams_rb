@@ -31,7 +31,7 @@ teams.on_sign_in do |ctx, token_response|
 end
 ```
 
-`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card (to a 1:1 conversation when invoked from a group chat) and returns `nil`. The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_sign_in`. You don't handle the invokes yourself.
+`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card and returns `nil`. In group chats and channels the card is delivered in the conversation as a targeted message only the requesting user sees; in channels the card always uses the sign-in button (silent SSO is not supported in channel scope). The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_sign_in`. You don't handle the invokes yourself.
 
 `ctx.sign_out` clears the stored token.
 

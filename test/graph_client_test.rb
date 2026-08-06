@@ -87,7 +87,7 @@ class GraphClientTest < Minitest::Test
   end
 
   def test_app_exposes_app_identity_graph_client
-    teams = Teams::App.new(api: FakeApi.new, skip_auth: true, logger: Logger.new(StringIO.new))
+    teams = Teams::App.new(api: FakeApi.new, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(StringIO.new))
 
     assert_instance_of Teams::Graph::Client, teams.graph
     assert_equal "https://graph.microsoft.com", teams.graph.base_url_root

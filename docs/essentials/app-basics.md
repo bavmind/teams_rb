@@ -10,12 +10,12 @@
 | `CLIENT_SECRET` | `client_secret:` | production | Client secret for the client-credentials flow |
 | `TENANT_ID` | `tenant_id:` | single-tenant | Entra tenant for bot tokens and tenant-issuer validation |
 | `SERVICE_URL` | `service_url:` | no | Default Bot Framework URL for proactive sends (inbound requests always use the activity's own service URL) |
-| — | `skip_auth:` | no | Disables inbound validation — local development only |
+| `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` | `dangerously_allow_unauthenticated_requests:` | no | Disables inbound validation — local development only (`skip_auth:` is a deprecated alias) |
 | — | `messaging_endpoint:` | no | Inbound path, default `/api/messages` |
 | — | `default_connection_name:` | no | OAuth connection name for user sign-in, default `"graph"` |
 | — | `logger:`, `storage:`, `cloud:` | no | Logger (stdout default), state store (in-memory default), cloud environment for sovereign clouds |
 
-Without credentials the app logs a startup warning and rejects every inbound request unless `skip_auth: true` was set explicitly — the same behavior as the TypeScript, Python, and .NET SDKs.
+Without credentials the app logs a startup warning and rejects every inbound request unless `dangerously_allow_unauthenticated_requests: true` was set explicitly — the same behavior as the TypeScript, Python, and .NET SDKs.
 
 ## One app instance
 
