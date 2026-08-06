@@ -96,6 +96,32 @@ module Teams
       register("meeting_end", event_selector("application/vnd.microsoft.meetingEnd"), &block)
     end
 
+    # conversationUpdate activities and their channel/team lifecycle
+    # sub-events, routed by channelData.eventType with the Python method
+    # names (the eventType literals are shared by all three SDKs).
+    def on_conversation_update(&block)
+      register("conversation_update", ->(activity) { activity.type == "conversationUpdate" }, &block)
+    end
+
+    CONVERSATION_UPDATE_EVENTS = {
+      "on_channel_created" => "channelCreated",
+      "on_channel_deleted" => "channelDeleted",
+      "on_channel_renamed" => "channelRenamed",
+      "on_channel_restored" => "channelRestored",
+      "on_team_archived" => "teamArchived",
+      "on_team_deleted" => "teamDeleted",
+      "on_team_hard_deleted" => "teamHardDeleted",
+      "on_team_renamed" => "teamRenamed",
+      "on_team_restored" => "teamRestored",
+      "on_team_unarchived" => "teamUnarchived"
+    }.freeze
+
+    CONVERSATION_UPDATE_EVENTS.each do |method_name, event_type|
+      define_method(method_name) do |&block|
+        register(event_type, conversation_update_selector(event_type), &block)
+      end
+    end
+
     # Message extension (compose extension) invoke routes, using the same
     # route names as the TypeScript and Python SDKs.
     MESSAGE_EXTENSION_ROUTES = {
@@ -156,6 +182,12 @@ module Teams
 
     def event_selector(event_name)
       ->(activity) { activity.type == "event" && activity.name == event_name }
+    end
+
+    def conversation_update_selector(event_type)
+      lambda do |activity|
+        activity.type == "conversationUpdate" && activity.channel_data.event_type == event_type
+      end
     end
 
     def dialog_selector(invoke_name, key, expected)

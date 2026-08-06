@@ -356,8 +356,8 @@ module Teams
       body = activity.dup
       body["from"] = conversation_reference.bot.to_h if conversation_reference.bot
       body["conversation"] = conversation_reference.conversation.to_h
-      # Every streamed activity replies to the inbound message, like the
-      # TypeScript streamer (restores Bot Framework v1 threading behavior).
+      # Every streamed activity replies to the inbound message, restoring
+      # Bot Framework v1 threading behavior.
       body["replyToId"] = conversation_reference.activity_id if conversation_reference.activity_id
 
       # Stream chunks and the streamed final carry a streaminfo entity and are

@@ -220,6 +220,21 @@ module Teams
       self
     end
 
+    # conversationUpdate activities plus their channel/team lifecycle
+    # sub-events (on_channel_created, on_team_renamed, ...), routed by
+    # channelData.eventType with the Python method names.
+    def on_conversation_update(&block)
+      @router.on_conversation_update(&block)
+      self
+    end
+
+    Router::CONVERSATION_UPDATE_EVENTS.each_key do |method_name|
+      define_method(method_name) do |&block|
+        @router.public_send(method_name, &block)
+        self
+      end
+    end
+
     # Message extension handlers (on_message_ext_query, on_message_ext_submit,
     # on_message_ext_open, ...) route the composeExtension/* invokes with the
     # TypeScript/Python route names. Handler return values (typed responses

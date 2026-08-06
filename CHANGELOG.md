@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file. The format foll
 - `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
 - `dangerously_allow_unauthenticated_requests:` App option and the `DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS` environment variable replace `skip_auth:` for disabling inbound validation, following the same rename in the TypeScript, Python, and .NET SDKs
 - `on_card_search` routes `application/search` invokes (Adaptive Card dynamic typeahead `Input.ChoiceSet`), with `Api::SearchResponse`/`Api::SearchInvokeResult` for the response and `query_text`/`query_options`/`kind`/`dataset` readers on the activity value
+- `on_conversation_update` plus named channel/team lifecycle routes (`on_channel_created`/`deleted`/`renamed`/`restored`, `on_team_archived`/`deleted`/`hard_deleted`/`renamed`/`restored`/`unarchived`) matched on `channelData.eventType`, following the route family the TypeScript, Python, and .NET SDKs share
 
 ### Changed
 

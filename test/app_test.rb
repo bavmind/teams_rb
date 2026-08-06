@@ -1417,6 +1417,67 @@ class AppTest < Minitest::Test
     assert_equal({ kind: "typeahead", query: "ber", dataset: "cities", skip: 5, top: 10 }, seen)
   end
 
+  def test_conversation_update_routes_generic_and_by_event_type
+    fired = []
+    # The generic route chains onward like any route: the event-specific
+    # route runs only when the earlier matching handler calls nxt.
+    @teams.on_conversation_update do |ctx, nxt|
+      fired << [:generic, ctx.activity.channel_data.event_type]
+      nxt.call
+    end
+    @teams.on_channel_renamed { |_ctx| fired << :channel_renamed }
+    @teams.on_team_renamed { |_ctx| fired << :team_renamed }
+
+    payload = teams_payload.merge(
+      "type" => "conversationUpdate",
+      "channelData" => { "eventType" => "channelRenamed", "channel" => { "id" => "channel-1" } }
+    )
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [[:generic, "channelRenamed"], :channel_renamed], fired
+  end
+
+  def test_conversation_update_event_routes_cover_channel_and_team_lifecycle
+    fired = []
+    @teams.on_channel_created { |_ctx| fired << "channelCreated" }
+    @teams.on_channel_deleted { |_ctx| fired << "channelDeleted" }
+    @teams.on_channel_restored { |_ctx| fired << "channelRestored" }
+    @teams.on_team_archived { |_ctx| fired << "teamArchived" }
+    @teams.on_team_deleted { |_ctx| fired << "teamDeleted" }
+    @teams.on_team_hard_deleted { |_ctx| fired << "teamHardDeleted" }
+    @teams.on_team_restored { |_ctx| fired << "teamRestored" }
+    @teams.on_team_unarchived { |_ctx| fired << "teamUnarchived" }
+
+    %w[channelCreated channelDeleted channelRestored teamArchived teamDeleted
+       teamHardDeleted teamRestored teamUnarchived].each do |event_type|
+      payload = teams_payload.merge(
+        "type" => "conversationUpdate",
+        "channelData" => { "eventType" => event_type }
+      )
+      payload.delete("text")
+      post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+      assert last_response.ok?
+    end
+
+    assert_equal %w[channelCreated channelDeleted channelRestored teamArchived teamDeleted
+                    teamHardDeleted teamRestored teamUnarchived], fired
+  end
+
+  def test_conversation_update_without_event_type_matches_only_generic_route
+    fired = []
+    @teams.on_conversation_update { |_ctx| fired << :generic }
+    @teams.on_channel_created { |_ctx| fired << :channel_created }
+
+    payload = teams_payload.merge("type" => "conversationUpdate", "membersAdded" => [{ "id" => "user-2" }])
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [:generic], fired
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }

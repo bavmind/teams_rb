@@ -32,6 +32,20 @@ Each invoke family has named routes — their handler return values become the i
 - Feedback: `on_message_submit_feedback` (thumbs up/down from `add_feedback` — [guide](../in-depth-guides/feedback.md)), `on_message_submit` for any `message/submitAction`
 - `on_suggested_action_submit` for suggested-action submissions
 
+## Conversation updates
+
+`on_conversation_update` matches any `conversationUpdate` activity (members added/removed, channel and team changes). The channel/team lifecycle sub-events also have named routes, matched on `channelData.eventType`:
+
+```ruby
+teams.on_conversation_update { |ctx| }     # any conversationUpdate activity
+teams.on_channel_created  { |ctx| ctx.post "Welcome to #{ctx.activity.channel_data.channel.name}!" }
+teams.on_channel_deleted  { |ctx| }        # also: on_channel_renamed, on_channel_restored
+teams.on_team_renamed     { |ctx| }        # also: on_team_archived, on_team_unarchived,
+                                           #   on_team_deleted, on_team_hard_deleted, on_team_restored
+```
+
+A generic `on_conversation_update` registered before a specific route sees the activity first; declare `|ctx, nxt|` and call `nxt.call` to continue to the specific route (see Middleware below).
+
 ## Meeting events
 
 ```ruby
