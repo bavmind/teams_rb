@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-08-06
+
 ### Added
 
 - `activity.channel_data.app` exposes the app info Teams delivers on inbound activities (`Teams::Api::AppInfo` with `id` and `version`), matching the `channelData.app` field the TypeScript, Python, and .NET SDKs model
@@ -62,6 +64,7 @@ the Python SDK made when it joined the family.
 - Thread-safe token management, storage, and JWKS caching for multi-threaded Rack servers
 - Documentation mirroring the official teams-sdk docs structure (getting started, essentials, in-depth guides)
 
-[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/bavmind/teams_rb/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bavmind/teams_rb/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bavmind/teams_rb/releases/tag/v2.0.0
