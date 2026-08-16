@@ -1478,6 +1478,148 @@ class AppTest < Minitest::Test
     assert_equal [:generic], fired
   end
 
+  def test_agentic_inbound_turn_scopes_api_and_replies
+    @teams.on_message { |ctx| ctx.post "as agent" }
+
+    payload = teams_payload
+    payload["recipient"] = payload["recipient"].merge(
+      "role" => "agenticUser",
+      "agenticAppBlueprintId" => "blueprint-1",
+      "agenticAppId" => "app-inst-1",
+      "agenticUserId" => "user-obj-1",
+      "tenantId" => "tenant-1"
+    )
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal 1, @api.scoped_identities.size
+    identity = @api.scoped_identities.first
+    assert_equal "blueprint-1", identity.agentic_app_blueprint_id
+    assert_equal "app-inst-1", identity.agentic_app_id
+    assert_equal "user-obj-1", identity.agentic_user_id
+    assert_equal "tenant-1", identity.tenant_id
+    assert_equal "as agent", @api.sent.first[1]["text"]
+  end
+
+  def test_normal_turn_does_not_scope_api
+    @teams.on_message { |ctx| ctx.post "plain" }
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_empty @api.scoped_identities
+  end
+
+  def test_proactive_post_with_agentic_identity
+    identity = Teams::Api::AgenticIdentity.new(
+      agentic_app_blueprint_id: "blueprint-1", agentic_app_id: "app-inst-1", tenant_id: "tenant-1"
+    )
+
+    @teams.post("conversation-9", "proactive as agent", agentic_identity: identity)
+
+    assert_equal [identity], @api.scoped_identities
+    assert_equal "proactive as agent", @api.sent.first[1]["text"]
+  end
+
+  def test_app_builds_agentic_identity_with_defaults
+    teams = Teams::App.new(
+      api: @api, client_id: "client-id", client_secret: "secret", tenant_id: "tenant-1", logger: @logger
+    )
+
+    identity = teams.agentic_identity(agentic_app_id: "app-inst-1", agentic_user_id: "user-obj-1")
+
+    assert_equal "client-id", identity.agentic_app_blueprint_id
+    assert_equal "app-inst-1", identity.agentic_app_id
+    assert_equal "user-obj-1", identity.agentic_user_id
+    assert_equal "tenant-1", identity.tenant_id
+  end
+
+  def test_agent_lifecycle_routes_generic_and_by_value_type
+    fired = []
+    @teams.on_agent_lifecycle do |ctx, nxt|
+      fired << [:generic, ctx.activity.value_type]
+      nxt.call
+    end
+    @teams.on_agentic_user_enabled { |_ctx| fired << :enabled }
+    @teams.on_agentic_user_disabled { |_ctx| fired << :disabled }
+
+    payload = teams_payload.merge(
+      "type" => "event",
+      "name" => "agentLifecycle",
+      "valueType" => "AgenticUserEnabled",
+      "value" => { "tenantId" => "tenant-1", "agenticUserId" => "user-obj-1" }
+    )
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal [[:generic, "AgenticUserEnabled"], :enabled], fired
+  end
+
+  def test_agent_lifecycle_variant_routes_cover_all_value_types
+    fired = []
+    @teams.on_agentic_user_identity_created { |ctx| fired << [ctx.activity.value_type, ctx.activity.value.manager.email] }
+    @teams.on_agentic_user_identity_updated { |_ctx| fired << "AgenticUserIdentityUpdated" }
+    @teams.on_agentic_user_manager_updated { |ctx| fired << [ctx.activity.value_type, ctx.activity.value.manager.manager_id] }
+    @teams.on_agentic_user_deleted { |ctx| fired << [ctx.activity.value_type, ctx.activity.value.deletion_reason] }
+    @teams.on_agentic_user_undeleted { |_ctx| fired << "AgenticUserUndeleted" }
+    @teams.on_agentic_user_workload_onboarding_updated do |ctx|
+      fired << [ctx.activity.value_type, ctx.activity.value.workload_name, ctx.activity.value.workload_onboarding_state]
+    end
+
+    events = [
+      ["AgenticUserIdentityCreated", { "manager" => { "userId" => "mgr-1", "email" => "mgr@example.com" } }],
+      ["AgenticUserIdentityUpdated", {}],
+      ["AgenticUserManagerUpdated", { "manager" => { "managerId" => "mgr-2" } }],
+      ["AgenticUserDeleted", { "deletionReason" => "offboarded" }],
+      ["AgenticUserUndeleted", {}],
+      ["AgenticUserWorkloadOnboardingUpdated", { "workloadName" => "mail", "workloadOnboardingState" => "completed" }]
+    ]
+    events.each do |value_type, value|
+      payload = teams_payload.merge(
+        "type" => "event", "name" => "agentLifecycle", "valueType" => value_type,
+        "value" => { "tenantId" => "tenant-1", "version" => 2 }.merge(value)
+      )
+      payload.delete("text")
+      post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+      assert last_response.ok?
+    end
+
+    assert_equal(
+      [
+        ["AgenticUserIdentityCreated", "mgr@example.com"],
+        "AgenticUserIdentityUpdated",
+        ["AgenticUserManagerUpdated", "mgr-2"],
+        ["AgenticUserDeleted", "offboarded"],
+        "AgenticUserUndeleted",
+        ["AgenticUserWorkloadOnboardingUpdated", "mail", "completed"]
+      ],
+      fired
+    )
+  end
+
+  def test_agent_lifecycle_value_exposes_base_fields
+    seen = nil
+    @teams.on_agent_lifecycle do |ctx|
+      value = ctx.activity.value
+      seen = [value.tenant_id, value.agentic_user_id, value.agentic_app_instance_id,
+              value.agent_identity_blueprint_id, value.version]
+    end
+
+    payload = teams_payload.merge(
+      "type" => "event", "name" => "agentLifecycle", "valueType" => "AgenticUserEnabled",
+      "value" => {
+        "tenantId" => "tenant-1", "agenticUserId" => "user-obj-1",
+        "agenticAppInstanceId" => "instance-1", "agentIdentityBlueprintId" => "blueprint-1", "version" => 3
+      }
+    )
+    payload.delete("text")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["tenant-1", "user-obj-1", "instance-1", "blueprint-1", 3], seen
+  end
+
   def test_meeting_start_event_routes_with_pascal_case_value
     seen = nil
     @teams.on_meeting_start { |ctx| seen = ctx.activity.value }

@@ -16,6 +16,11 @@ module Teams
       raw["name"]
     end
 
+    # Discriminates agentLifecycle event variants (PascalCase wire values).
+    def value_type
+      raw["valueType"] || raw["value_type"]
+    end
+
     def text
       raw["text"]
     end

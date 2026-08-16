@@ -55,6 +55,36 @@ module Teams
         read("tenantId", "tenant_id")
       end
 
+      def agentic_user_id
+        read("agenticUserId", "agentic_user_id")
+      end
+
+      def agentic_app_id
+        read("agenticAppId", "agentic_app_id")
+      end
+
+      def agentic_app_blueprint_id
+        read("agenticAppBlueprintId", "agentic_app_blueprint_id")
+      end
+
+      def callback_uri
+        read("callbackUri", "callback_uri")
+      end
+
+      # The Agent 365 identity scope this account carries (agentic accounts
+      # arrive with role "agenticUser" on the activity's recipient); nil
+      # unless the account belongs to an agentic app blueprint.
+      def agentic_identity
+        return nil unless agentic_app_blueprint_id
+
+        AgenticIdentity.new(
+          agentic_app_blueprint_id:,
+          agentic_app_id:,
+          agentic_user_id:,
+          tenant_id:
+        )
+      end
+
       def to_h
         body = raw.dup
         body["id"] = id if id
@@ -70,6 +100,10 @@ module Teams
         body["email"] = email if email
         body["userPrincipalName"] = user_principal_name if user_principal_name
         body["tenantId"] = tenant_id if tenant_id
+        body["agenticUserId"] = agentic_user_id if agentic_user_id
+        body["agenticAppId"] = agentic_app_id if agentic_app_id
+        body["agenticAppBlueprintId"] = agentic_app_blueprint_id if agentic_app_blueprint_id
+        body["callbackUri"] = callback_uri if callback_uri
         remove_aliases(body)
       end
 
@@ -83,6 +117,10 @@ module Teams
         body.delete("given_name")
         body.delete("user_principal_name")
         body.delete("tenant_id")
+        body.delete("agentic_user_id")
+        body.delete("agentic_app_id")
+        body.delete("agentic_app_blueprint_id")
+        body.delete("callback_uri")
         body
       end
     end

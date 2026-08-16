@@ -46,6 +46,19 @@ teams.on_team_renamed     { |ctx| }        # also: on_team_archived, on_team_una
 
 A generic `on_conversation_update` registered before a specific route sees the activity first; declare `|ctx, nxt|` and call `nxt.call` to continue to the specific route (see Middleware below).
 
+## Agent 365 lifecycle events
+
+`on_agent_lifecycle` matches any `agentLifecycle` event (sent when this app runs as an Agent 365 agentic user); the variants also have named routes, matched on the activity's `valueType`:
+
+```ruby
+teams.on_agent_lifecycle { |ctx| }                # any agentLifecycle event
+teams.on_agentic_user_identity_created { |ctx| }  # also: identity_updated, manager_updated,
+teams.on_agentic_user_enabled { |ctx| }           #   disabled, deleted, undeleted,
+                                                  #   workload_onboarding_updated
+```
+
+The event value exposes `tenant_id`, `agentic_user_id`, `agentic_app_instance_id`, `agent_identity_blueprint_id`, `version`, and per-variant fields (`manager`, `deletion_reason`, `workload_name`, …).
+
 ## Meeting events
 
 ```ruby

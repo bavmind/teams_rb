@@ -73,6 +73,69 @@ module Teams
       def top
         read("top")
       end
+
+      # Agent 365 agentLifecycle event value fields. The service sends the
+      # agenticAppInstanceId / agentIdentityBlueprintId wire keys (not the
+      # account-style names); all SDKs preserve them.
+      def tenant_id
+        read("tenantId", "tenant_id")
+      end
+
+      def agentic_user_id
+        read("agenticUserId", "agentic_user_id")
+      end
+
+      def agentic_app_instance_id
+        read("agenticAppInstanceId", "agentic_app_instance_id")
+      end
+
+      def agent_identity_blueprint_id
+        read("agentIdentityBlueprintId", "agent_identity_blueprint_id")
+      end
+
+      def version
+        read("version")
+      end
+
+      # Variant extras: manager (identity-created carries userId/email/
+      # displayName; manager-updated carries managerId), deletion reason,
+      # workload onboarding fields, and the created identity's expiry.
+      def manager
+        value = read("manager")
+        value.is_a?(Hash) ? ActivityValue.new(value) : value
+      end
+
+      def user_id
+        read("userId", "user_id")
+      end
+
+      def email
+        read("email")
+      end
+
+      def display_name
+        read("displayName", "display_name")
+      end
+
+      def manager_id
+        read("managerId", "manager_id")
+      end
+
+      def deletion_reason
+        read("deletionReason", "deletion_reason")
+      end
+
+      def workload_name
+        read("workloadName", "workload_name")
+      end
+
+      def workload_onboarding_state
+        read("workloadOnboardingState", "workload_onboarding_state")
+      end
+
+      def expiration_date_time
+        read("expirationDateTime", "expiration_date_time")
+      end
     end
   end
 end

@@ -147,6 +147,17 @@ class FakeApi
     Teams::Api::ConversationResource.new("id" => "created-conversation-1")
   end
 
+  # Mirrors Api::Client#for_agentic_identity: records the scoping and keeps
+  # serving the same fake so sends stay observable.
+  def for_agentic_identity(identity, service_url: nil)
+    scoped_identities << identity
+    self
+  end
+
+  def scoped_identities
+    @scoped_identities ||= []
+  end
+
   def created_conversations
     @created_conversations ||= []
   end

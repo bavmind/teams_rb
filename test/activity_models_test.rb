@@ -60,6 +60,59 @@ class ActivityModelsTest < Minitest::Test
     refute_respond_to activity.channel_data, :streamType
   end
 
+  def test_account_exposes_agentic_identity
+    account = Teams::Api::Account.new(
+      "id" => "28:agent-1",
+      "role" => "agenticUser",
+      "agenticUserId" => "user-obj-1",
+      "agenticAppId" => "app-inst-1",
+      "agenticAppBlueprintId" => "blueprint-1",
+      "callbackUri" => "https://example.com/callback",
+      "tenantId" => "tenant-1"
+    )
+
+    assert_equal "agenticUser", account.role
+    assert_equal "user-obj-1", account.agentic_user_id
+    assert_equal "app-inst-1", account.agentic_app_id
+    assert_equal "blueprint-1", account.agentic_app_blueprint_id
+    assert_equal "https://example.com/callback", account.callback_uri
+
+    identity = account.agentic_identity
+    assert_instance_of Teams::Api::AgenticIdentity, identity
+    assert_equal "blueprint-1", identity.agentic_app_blueprint_id
+    assert_equal "app-inst-1", identity.agentic_app_id
+    assert_equal "user-obj-1", identity.agentic_user_id
+    assert_equal "tenant-1", identity.tenant_id
+    assert_equal(
+      {
+        "agenticAppBlueprintId" => "blueprint-1",
+        "agenticAppId" => "app-inst-1",
+        "agenticUserId" => "user-obj-1",
+        "tenantId" => "tenant-1"
+      },
+      identity.to_h
+    )
+  end
+
+  def test_account_agentic_identity_is_nil_without_blueprint
+    account = Teams::Api::Account.new("id" => "user-1", "agenticUserId" => "user-obj-1")
+
+    assert_nil account.agentic_identity
+  end
+
+  def test_account_serializes_agentic_fields
+    account = Teams::Api::Account.new(
+      "id" => "28:agent-1",
+      "agentic_user_id" => "user-obj-1",
+      "agentic_app_blueprint_id" => "blueprint-1"
+    )
+
+    assert_equal(
+      { "id" => "28:agent-1", "agenticUserId" => "user-obj-1", "agenticAppBlueprintId" => "blueprint-1" },
+      account.to_h
+    )
+  end
+
   def test_activity_value_uses_explicit_model_when_hash
     activity = Teams::Activity.new(teams_payload.merge("value" => { "action" => "save" }))
 

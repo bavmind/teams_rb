@@ -223,6 +223,28 @@ class ApiClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  def test_for_agentic_identity_requires_token_provider
+    client = Teams::Api::Client.new(service_url: "https://smba.trafficmanager.net/teams", http: FakeHttp.new)
+
+    error = assert_raises(Teams::Error) { client.for_agentic_identity(nil) }
+    assert_includes error.message, "without a token provider"
+  end
+
+  def test_for_agentic_identity_returns_scoped_client
+    client = Teams::Api::Client.new(
+      service_url: "https://smba.trafficmanager.net/teams",
+      http: FakeHttp.new,
+      token_provider: ->(_identity) { "agentic-token" }
+    )
+    identity = Teams::Api::AgenticIdentity.new(agentic_app_blueprint_id: "blueprint-1")
+
+    scoped = client.for_agentic_identity(identity, service_url: "https://smba.trafficmanager.net/de/tenant")
+
+    assert_instance_of Teams::Api::Client, scoped
+    refute_same client, scoped
+    assert_equal "https://smba.trafficmanager.net/de/tenant", scoped.service_url
+  end
+
   def test_reply_to_activity_sets_reply_to_id_in_body
     stubs = Faraday::Adapter::Test::Stubs.new do |stub|
       stub.post("/teams/v3/conversations/conversation-1/activities") do |env|

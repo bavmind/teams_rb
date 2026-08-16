@@ -96,6 +96,31 @@ module Teams
       register("meeting_end", event_selector("application/vnd.microsoft.meetingEnd"), &block)
     end
 
+    # Agent 365 agentLifecycle events (type "event", name "agentLifecycle"),
+    # discriminated by the activity-level valueType, with the Python method
+    # names. The PascalCase valueType literals are service-owned wire values
+    # shared by all three SDKs.
+    def on_agent_lifecycle(&block)
+      register("agent_lifecycle", agent_lifecycle_selector(nil), &block)
+    end
+
+    AGENT_LIFECYCLE_EVENTS = {
+      "on_agentic_user_identity_created" => "AgenticUserIdentityCreated",
+      "on_agentic_user_identity_updated" => "AgenticUserIdentityUpdated",
+      "on_agentic_user_manager_updated" => "AgenticUserManagerUpdated",
+      "on_agentic_user_enabled" => "AgenticUserEnabled",
+      "on_agentic_user_disabled" => "AgenticUserDisabled",
+      "on_agentic_user_deleted" => "AgenticUserDeleted",
+      "on_agentic_user_undeleted" => "AgenticUserUndeleted",
+      "on_agentic_user_workload_onboarding_updated" => "AgenticUserWorkloadOnboardingUpdated"
+    }.freeze
+
+    AGENT_LIFECYCLE_EVENTS.each do |method_name, value_type|
+      define_method(method_name) do |&block|
+        register(method_name.delete_prefix("on_"), agent_lifecycle_selector(value_type), &block)
+      end
+    end
+
     # conversationUpdate activities and their channel/team lifecycle
     # sub-events, routed by channelData.eventType with the Python method
     # names (the eventType literals are shared by all three SDKs).
@@ -187,6 +212,14 @@ module Teams
     def conversation_update_selector(event_type)
       lambda do |activity|
         activity.type == "conversationUpdate" && activity.channel_data.event_type == event_type
+      end
+    end
+
+    def agent_lifecycle_selector(value_type)
+      lambda do |activity|
+        next false unless activity.type == "event" && activity.name == "agentLifecycle"
+
+        value_type.nil? || activity.value_type == value_type
       end
     end
 

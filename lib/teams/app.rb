@@ -48,7 +48,8 @@ module Teams
         service_url:,
         http: Common::HttpClient.new(token: -> { @token_manager.bot_token }),
         logger:,
-        oauth_url: cloud.token_service_url
+        oauth_url: cloud.token_service_url,
+        token_provider: method(:token_for_agentic_identity)
       )
       @jwt_validator = Auth::JwtValidator.new(
         client_id: @token_manager.client_id,
@@ -235,6 +236,21 @@ module Teams
       end
     end
 
+    # Agent 365 agentLifecycle events plus their per-variant routes
+    # (on_agentic_user_identity_created, on_agentic_user_enabled, ...),
+    # discriminated by the activity-level valueType.
+    def on_agent_lifecycle(&block)
+      @router.on_agent_lifecycle(&block)
+      self
+    end
+
+    Router::AGENT_LIFECYCLE_EVENTS.each_key do |method_name|
+      define_method(method_name) do |&block|
+        @router.public_send(method_name, &block)
+        self
+      end
+    end
+
     # Message extension handlers (on_message_ext_query, on_message_ext_submit,
     # on_message_ext_open, ...) route the composeExtension/* invokes with the
     # TypeScript/Python route names. Handler return values (typed responses
@@ -266,11 +282,17 @@ module Teams
       validate_inbound!(env, activity)
 
       conversation_reference = Api::ConversationReference.from_activity(activity)
+      # Agentic activities carry the identity on the recipient account; the
+      # whole turn (context and stream) is scoped to it so replies
+      # authenticate as the agent, like the other SDKs' per-turn clients.
+      agentic_identity = activity.recipient.agentic_identity
+      turn_api = agentic_identity ? api.for_agentic_identity(agentic_identity) : api
       context = ActivityContext.new(
         app: self,
         activity:,
         conversation_reference:,
-        stream: HttpStream.new(app: self, conversation_reference:)
+        api: turn_api,
+        stream: HttpStream.new(app: self, conversation_reference:, api: turn_api)
       )
       result = run_handlers(context)
       context.stream.close
@@ -283,21 +305,34 @@ module Teams
       Response.new(status: 200)
     end
 
+    # Builds an Api::AgenticIdentity for proactive agentic operations: the
+    # blueprint defaults to this app's client id and the tenant to the
+    # configured credentials tenant, like the Python SDK.
+    def agentic_identity(agentic_app_id: nil, agentic_user_id: nil, tenant_id: nil, agentic_app_blueprint_id: nil)
+      Api::AgenticIdentity.new(
+        agentic_app_blueprint_id: agentic_app_blueprint_id || client_id,
+        agentic_app_id:,
+        agentic_user_id:,
+        tenant_id: tenant_id || @token_manager.credentials&.tenant_id
+      )
+    end
+
     # The TypeScript, Python, and .NET SDKs call this operation `send`.
     # Ruby already defines Object#send for dynamic dispatch, so the public
     # Ruby API uses `post` to avoid shadowing a core language method.
-    def post(conversation_id, activity_or_text, service_url: nil)
+    def post(conversation_id, activity_or_text, service_url: nil, agentic_identity: nil)
       assert_string!(conversation_id, "conversation_id")
 
       send_activity(
         proactive_reference(conversation_id, service_url:),
-        activity_or_text
+        activity_or_text,
+        api: agentic_identity ? api.for_agentic_identity(agentic_identity) : api
       )
     end
 
     # Proactive threaded replies use a ";messageid=" conversation ID like the
     # TypeScript and Python SDKs; the service decides whether threading applies.
-    def reply(conversation_id, activity_id_or_activity, activity_or_text = nil, service_url: nil)
+    def reply(conversation_id, activity_id_or_activity, activity_or_text = nil, service_url: nil, agentic_identity: nil)
       assert_string!(conversation_id, "conversation_id")
 
       if activity_or_text
@@ -306,23 +341,24 @@ module Teams
         post(
           Teams.to_threaded_conversation_id(conversation_id, activity_id_or_activity),
           activity_or_text,
-          service_url:
+          service_url:,
+          agentic_identity:
         )
       else
-        post(conversation_id, activity_id_or_activity, service_url:)
+        post(conversation_id, activity_id_or_activity, service_url:, agentic_identity:)
       end
     end
 
     # Sugar over post: the SDKs update by sending an activity that already
     # carries an id, and post does exactly that. See AGENTS.md.
-    def update(conversation_id, activity_id, activity_or_text, service_url: nil)
+    def update(conversation_id, activity_id, activity_or_text, service_url: nil, agentic_identity: nil)
       assert_string!(conversation_id, "conversation_id")
       assert_string!(activity_id, "activity_id")
 
-      post(conversation_id, activity_with_id(activity_id, activity_or_text), service_url:)
+      post(conversation_id, activity_with_id(activity_id, activity_or_text), service_url:, agentic_identity:)
     end
 
-    def send_activity(conversation_reference, activity_or_text)
+    def send_activity(conversation_reference, activity_or_text, api: self.api)
       activity = activity_for_reference(conversation_reference, activity_or_text)
       targeted = targeted_activity?(activity)
 
@@ -562,12 +598,35 @@ module Teams
       end
     end
 
+    # Token dispatch for scoped API clients: no identity uses the app
+    # token; an identity with an agentic user uses the agentic user token;
+    # otherwise the agentic app token. Kinds never fall back to each other -
+    # failing is safer than authenticating under the wrong identity.
+    def token_for_agentic_identity(identity)
+      return @token_manager.bot_token unless identity
+
+      if identity.agentic_user_id
+        @token_manager.agentic_user_token(
+          @cloud.agent_bot_scope,
+          agentic_app_id: identity.agentic_app_id,
+          agentic_user_id: identity.agentic_user_id,
+          tenant_id: identity.tenant_id
+        )
+      else
+        @token_manager.agentic_app_token(
+          @cloud.agent_bot_scope,
+          agentic_app_id: identity.agentic_app_id,
+          tenant_id: identity.tenant_id
+        )
+      end
+    end
+
     def validate_inbound!(env, activity)
       return if @dangerously_allow_unauthenticated_requests
 
       raise AuthenticationError, "CLIENT_ID is required for inbound validation" unless @jwt_validator
 
-      @jwt_validator.validate!(env["HTTP_AUTHORIZATION"], service_url: activity.service_url)
+      @jwt_validator.validate_inbound_activity!(env["HTTP_AUTHORIZATION"], service_url: activity.service_url)
     end
 
     def run_handlers(context)

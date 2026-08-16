@@ -196,6 +196,79 @@ class JwtValidatorTest < Minitest::Test
     assert_equal "https://sts.windows.net/tenant-1/", payload["iss"]
   end
 
+  def test_inbound_activity_validates_service_tokens_like_validate
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(
+      rsa:,
+      kid:,
+      payload: valid_payload.merge("serviceurl" => "https://smba.trafficmanager.net/teams")
+    )
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate_inbound_activity!("Bearer #{token}", service_url: "https://smba.trafficmanager.net/teams")
+    assert_equal "client-id", payload["aud"]
+
+    error = assert_raises(Teams::AuthenticationError) do
+      validator.validate_inbound_activity!("Bearer #{token}", service_url: "https://evil.example.com")
+    end
+    assert_includes error.message, "Service URL mismatch"
+  end
+
+  def test_inbound_activity_accepts_entra_agentic_token_without_serviceurl
+    rsa, kid, cloud, http = validator_parts
+    http.responses["https://login.example.com/tenant-x/discovery/v2.0/keys"] = {
+      "keys" => [JwtTestHelper.jwk_for(rsa, kid:)]
+    }
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload)
+    # No tenant configured: agentic inbound tokens validate against the
+    # token's own tenant.
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate_inbound_activity!("Bearer #{token}", service_url: "https://smba.trafficmanager.net/teams")
+
+    assert_equal "tenant-x", payload["tid"]
+  end
+
+  def test_inbound_activity_accepts_entra_v1_issuer
+    rsa, kid, cloud, http = validator_parts
+    http.responses["https://login.example.com/tenant-x/discovery/v2.0/keys"] = {
+      "keys" => [JwtTestHelper.jwk_for(rsa, kid:)]
+    }
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.merge("iss" => "https://sts.windows.net/tenant-x/"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate_inbound_activity!("Bearer #{token}")
+
+    assert_equal "https://sts.windows.net/tenant-x/", payload["iss"]
+  end
+
+  def test_inbound_activity_entra_token_requires_tid
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.tap { |p| p.delete("tid") })
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    error = assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+    assert_equal "Entra inbound token is missing tid", error.message
+  end
+
+  def test_inbound_activity_entra_rejects_issuer_tenant_mismatch
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.merge("tid" => "tenant-other"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    error = assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+    assert_equal "JWT issuer is invalid", error.message
+  end
+
+  def test_inbound_activity_entra_rejects_wrong_audience
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.merge("aud" => "other-client-id"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    error = assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+    assert_equal "JWT audience is invalid", error.message
+  end
+
   private
 
   def validator_parts
@@ -221,6 +294,16 @@ class JwtValidatorTest < Minitest::Test
   def valid_payload
     {
       "iss" => "https://api.botframework.com",
+      "aud" => "client-id",
+      "nbf" => Time.now.to_i - 60,
+      "exp" => Time.now.to_i + 3600
+    }
+  end
+
+  def entra_payload
+    {
+      "iss" => "https://login.example.com/tenant-x/v2.0",
+      "tid" => "tenant-x",
       "aud" => "client-id",
       "nbf" => Time.now.to_i - 60,
       "exp" => Time.now.to_i + 3600
