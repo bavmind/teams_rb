@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- Delegate JWKS retrieval and whole-set caching to `jwk-loader` 1.3 with a ten-minute maximum cache age; retain the default fifteen-minute invalidation grace period and bounded per-tenant endpoint caching
+
+### Fixed
+
+- Reject unsuccessful JWKS HTTP responses and preserve cached sets on failed refreshes without accepting expired keys
+
 ## [2.0.3] - 2026-11-05
 
 ### Added

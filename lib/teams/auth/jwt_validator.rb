@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
 require "jwt"
+require "jwk-loader"
 
 module Teams
   module Auth
     class JwtValidator
       ENTRA_V1_ISSUER_PREFIX = "https://sts.windows.net/"
-      JWKS_CACHE_TTL = 10 * 60
-      JWKS_CACHE_MAX_ENTRIES = 5
+      JWKS_CACHE_MAX_AGE = 10 * 60
       # Endpoints are bounded so random tenant ids in unverified inbound
       # tokens cannot grow the JWKS caches forever, like the
       # TypeScript/Python validators.
@@ -19,10 +19,8 @@ module Teams
         @tenant_id = tenant_id
         @cloud = cloud
         @http = http || Common::HttpClient.new
-        @jwks = {}
+        @jwks_loaders = {}
         @jwks_mutex = Mutex.new
-        # Coordinate misses per endpoint without blocking cached-key reads.
-        @jwks_fetch_mutexes = {}
         @discovery_mutex = Mutex.new
       end
 
@@ -137,73 +135,29 @@ module Teams
           raise AuthenticationError, "JWT signing key ID is invalid"
         end
 
-        cached = cached_signing_key(uri, kid)
-        return cached if cached
-
-        fetch_mutex = @jwks_mutex.synchronize do
-          mutex = @jwks_fetch_mutexes[uri]
-          unless mutex
-            @jwks_fetch_mutexes.shift while @jwks_fetch_mutexes.length >= MAX_JWKS_ENDPOINTS
-            mutex = @jwks_fetch_mutexes[uri] = Mutex.new
-          end
-          mutex
-        end
-        fetch_mutex.synchronize do
-          cached = cached_signing_key(uri, kid)
-          return cached if cached
-
-          key = fetch_signing_key(uri, kid)
-          @jwks_mutex.synchronize do
-            cache = endpoint_cache(uri)
-            cache.shift if cache.size >= JWKS_CACHE_MAX_ENTRIES
-            cache[kid] = { key:, expires_at: monotonic_time + JWKS_CACHE_TTL }
-          end
-          key
-        end
-      end
-
-      def cached_signing_key(uri, kid)
         @jwks_mutex.synchronize do
-          cache = endpoint_cache(uri)
-          cached = cache.delete(kid)
-          if cached && monotonic_time < cached[:expires_at]
-            cache[kid] = cached
-            cached[:key]
+          provider = @jwks_loaders[uri]
+          unless provider
+            @jwks_loaders.shift while @jwks_loaders.length >= MAX_JWKS_ENDPOINTS
+            provider = @jwks_loaders[uri] = JwkLoader.for_uri(
+              uri:, cache: JwkLoader::MemoryCache.new, cache_max_age: JWKS_CACHE_MAX_AGE
+            )
           end
-        end
-      end
+          loader = lambda do |options|
+            keys = provider.call(options).select do |key|
+              key[:kty] == "RSA" && [nil, "sig"].include?(key[:use])
+            end
+            if kid.nil? && keys.size != 1
+              raise AuthenticationError, "JWT signing key was not found"
+            end
 
-      # Must be called while holding @jwks_mutex.
-      def endpoint_cache(uri)
-        cache = @jwks[uri]
-        unless cache
-          @jwks.shift while @jwks.length >= MAX_JWKS_ENDPOINTS
-          cache = @jwks[uri] = {}
-        end
-        cache
-      end
+            JWT::JWK::Set.new(keys)
+          end
 
-      def fetch_signing_key(uri, kid)
-        document = @http.get(uri)
-        unless document.is_a?(Hash) && document["keys"].is_a?(Array)
-          raise AuthenticationError, "JWT signing keys response is invalid"
+          JWT::JWK::KeyFinder.new(jwks: loader, allow_nil_kid: true).key_for(kid)
         end
-
-        keys = document["keys"].select do |key|
-          key.is_a?(Hash) && key["kty"] == "RSA" && [nil, "sig"].include?(key["use"])
-        end
-        if kid.nil? && keys.size != 1
-          raise AuthenticationError, "JWT signing key was not found"
-        end
-        key = kid.nil? ? keys.first : keys.find { |candidate| candidate["kid"] == kid }
-        raise AuthenticationError, "JWT signing key was not found" unless key
-
-        unless [key["n"], key["e"]].all? { |value| value.is_a?(String) && !value.empty? }
-          raise AuthenticationError, "JWT signing key is invalid"
-        end
-
-        JWT::JWK.import(key).verify_key
-      rescue HttpError, Faraday::Error, JWT::DecodeError, ArgumentError, OpenSSL::PKey::PKeyError, OpenSSL::ASN1::ASN1Error => error
+      rescue Net::HTTPExceptions, JSON::ParserError, Timeout::Error, SocketError, IOError, SystemCallError, ArgumentError,
+             OpenSSL::SSL::SSLError, OpenSSL::PKey::PKeyError, OpenSSL::ASN1::ASN1Error => error
         raise AuthenticationError, "Unable to retrieve JWT signing key: #{error.message}"
       end
 
@@ -245,9 +199,6 @@ module Teams
         value.to_s.sub(%r{/+\z}, "").downcase
       end
 
-      def monotonic_time
-        Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      end
     end
   end
 end
