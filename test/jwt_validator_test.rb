@@ -387,6 +387,14 @@ class JwtValidatorTest < Minitest::Test
     rsa, kid, cloud, http = validator_parts
     validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
     token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload)
+    entered = Queue.new
+    release = Queue.new
+    document = http.responses[keys_uri]
+    http.responses[keys_uri] = lambda do
+      entered << true
+      release.pop
+      document
+    end
     start = Queue.new
     threads = 8.times.map do
       Thread.new do
@@ -396,8 +404,109 @@ class JwtValidatorTest < Minitest::Test
     end
     8.times { start << true }
 
-    assert_equal ["client-id"] * 8, threads.map { |thread| thread.value["aud"] }
+    assert entered.pop(timeout: 5), "JWKS fetch did not start"
+    release << true
+    assert_equal ["client-id"] * 8, threads.map { |thread| thread_value(thread)["aud"] }
     assert_equal 1, http.gets.count(keys_uri)
+    assert_equal 1, http.gets.count(cloud.open_id_metadata_url)
+  ensure
+    release << true if release
+    stop_threads(*threads) if threads
+  end
+
+  def test_cached_key_validation_does_not_wait_for_an_unknown_key_fetch
+    rsa, kid, cloud, http = validator_parts
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+    token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload)
+    validator.validate!("Bearer #{token}")
+    unknown = JwtTestHelper.token(rsa:, kid: "unknown", payload: valid_payload)
+    entered = Queue.new
+    release = Queue.new
+    http.responses[keys_uri] = lambda do
+      entered << true
+      release.pop
+      { "keys" => [] }
+    end
+
+    fetch_thread = Thread.new do
+      assert_raises(Teams::AuthenticationError) { validator.validate!("Bearer #{unknown}") }
+    end
+    assert entered.pop(timeout: 5), "JWKS fetch did not start"
+    cached_thread = Thread.new { validator.validate!("Bearer #{token}") }
+
+    assert_equal "client-id", thread_value(cached_thread)["aud"]
+    assert_equal 2, http.gets.count(keys_uri)
+    release << true
+    assert_equal "JWT signing key was not found", thread_value(fetch_thread).message
+  ensure
+    release << true if release
+    stop_threads(fetch_thread, cached_thread)
+  end
+
+  def test_cached_tenant_key_validation_does_not_wait_for_bot_framework_discovery
+    rsa, kid, cloud, http = validator_parts
+    tenant_uri = "#{cloud.login_endpoint}/tenant-1/discovery/v2.0/keys"
+    http.responses[tenant_uri] = http.responses[keys_uri]
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", tenant_id: "tenant-1", cloud:, http:)
+    tenant_token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload.merge("iss" => "https://sts.windows.net/tenant-1/"))
+    validator.validate!("Bearer #{tenant_token}")
+    bot_token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload)
+    entered = Queue.new
+    release = Queue.new
+    metadata = http.responses[cloud.open_id_metadata_url]
+    http.responses[cloud.open_id_metadata_url] = lambda do
+      entered << true
+      release.pop
+      metadata
+    end
+
+    discovery_thread = Thread.new { validator.validate!("Bearer #{bot_token}") }
+    assert entered.pop(timeout: 5), "Discovery request did not start"
+    cached_thread = Thread.new { validator.validate!("Bearer #{tenant_token}") }
+
+    assert_equal "client-id", thread_value(cached_thread)["aud"]
+    assert_equal 1, http.gets.count(tenant_uri)
+    release << true
+    assert_equal "client-id", thread_value(discovery_thread)["aud"]
+    assert_equal 1, http.gets.count(cloud.open_id_metadata_url)
+  ensure
+    release << true if release
+    stop_threads(discovery_thread, cached_thread)
+  end
+
+  def test_failed_concurrent_fetch_releases_waiters_for_immediate_retry
+    rsa, kid, cloud, http = validator_parts
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+    token = JwtTestHelper.token(rsa:, kid:, payload: valid_payload)
+    entered = Queue.new
+    release = Queue.new
+    document = http.responses[keys_uri]
+    attempts = 0
+    http.responses[keys_uri] = lambda do
+      attempts += 1
+      if attempts == 1
+        entered << true
+        release.pop
+        Teams::HttpError.new("JWKS unavailable", status: 503, headers: {}, body: "")
+      else
+        document
+      end
+    end
+
+    failed_thread = Thread.new do
+      assert_raises(Teams::AuthenticationError) { validator.validate!("Bearer #{token}") }
+    end
+    assert entered.pop(timeout: 5), "JWKS fetch did not start"
+    retry_thread = Thread.new { validator.validate!("Bearer #{token}") }
+    release << true
+
+    assert_includes thread_value(failed_thread).message, "JWKS unavailable"
+    assert_equal "client-id", thread_value(retry_thread)["aud"]
+    assert_equal "client-id", validator.validate!("Bearer #{token}")["aud"]
+    assert_equal 2, http.gets.count(keys_uri)
+  ensure
+    release << true if release
+    stop_threads(failed_thread, retry_thread)
   end
 
   def test_rack_logs_key_fetch_failures_as_401_and_recovers_without_restarting
@@ -428,6 +537,18 @@ class JwtValidatorTest < Minitest::Test
   end
 
   private
+
+  def thread_value(thread)
+    assert thread.join(5), "Timed out waiting for JWT verification"
+    thread.value
+  end
+
+  def stop_threads(*threads)
+    threads.compact.each do |thread|
+      thread.kill if thread.alive?
+      thread.join
+    end
+  end
 
   def keys_uri
     "https://login.example.com/keys"

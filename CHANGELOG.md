@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file. The format foll
 ### Fixed
 
 - Recover from signing-key rotation without restarting the bot instead of caching the first JWKS document indefinitely
+- Avoid blocking cached signing-key validation behind slow JWKS or discovery requests while preserving coordinated successful cache misses
 
 ## [2.0.2] - 2026-08-06
 

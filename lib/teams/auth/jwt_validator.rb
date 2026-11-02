@@ -15,9 +15,10 @@ module Teams
         @cloud = cloud
         @http = http || Common::HttpClient.new
         @jwks = {}
-        # The validator is shared across request threads; the mutex keeps
-        # concurrent cold-cache requests from fetching the JWKS repeatedly.
         @jwks_mutex = Mutex.new
+        # Coordinate misses per endpoint without blocking cached-key reads.
+        @jwks_fetch_mutexes = {}
+        @discovery_mutex = Mutex.new
       end
 
       def validate!(authorization_header, service_url: nil)
@@ -69,19 +70,32 @@ module Teams
         end
 
         uri = jwks_uri_for_issuer(issuer)
+        cached = cached_signing_key(uri, kid)
+        return cached if cached
 
+        fetch_mutex = @jwks_mutex.synchronize { @jwks_fetch_mutexes[uri] ||= Mutex.new }
+        fetch_mutex.synchronize do
+          cached = cached_signing_key(uri, kid)
+          return cached if cached
+
+          key = fetch_signing_key(uri, kid)
+          @jwks_mutex.synchronize do
+            cache = @jwks[uri]
+            cache.shift if cache.size >= JWKS_CACHE_MAX_ENTRIES
+            cache[kid] = { key:, expires_at: monotonic_time + JWKS_CACHE_TTL }
+          end
+          key
+        end
+      end
+
+      def cached_signing_key(uri, kid)
         @jwks_mutex.synchronize do
           cache = @jwks[uri] ||= {}
           cached = cache.delete(kid)
           if cached && monotonic_time < cached[:expires_at]
             cache[kid] = cached
-            return cached[:key]
+            cached[:key]
           end
-
-          key = fetch_signing_key(uri, kid)
-          cache.shift if cache.size >= JWKS_CACHE_MAX_ENTRIES
-          cache[kid] = { key:, expires_at: monotonic_time + JWKS_CACHE_TTL }
-          key
         end
       end
 
@@ -116,7 +130,7 @@ module Teams
       end
 
       def bot_framework_jwks_uri
-        @jwks_mutex.synchronize do
+        @discovery_mutex.synchronize do
           @bot_framework_jwks_uri ||= begin
             metadata = @http.get(@cloud.open_id_metadata_url)
             unless metadata.is_a?(Hash) && metadata["jwks_uri"].is_a?(String) && !metadata["jwks_uri"].empty?
