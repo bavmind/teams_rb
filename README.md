@@ -1,6 +1,7 @@
 # teams_rb — Teams SDK for Ruby
 
 [![Gem Version](https://img.shields.io/gem/v/teams_rb)](https://rubygems.org/gems/teams_rb)
+[![CI](https://github.com/bavmind/teams_rb/actions/workflows/ci.yml/badge.svg)](https://github.com/bavmind/teams_rb/actions/workflows/ci.yml)
 [![Documentation](https://img.shields.io/badge/docs-getting_started-blue)](docs/getting-started/README.md)
 
 A Ruby-native port of the Microsoft Teams SDKs for building Teams bots and apps with Rack or Rails. It includes message routing, proactive messaging, the Bot Framework API client, typed Adaptive Cards, dialogs, message extensions, streaming, meetings, OAuth, Microsoft Graph, tabs, and remote functions.
@@ -145,6 +146,8 @@ Install dependencies and run the Minitest suite:
 bundle install
 bundle exec rake test
 ```
+
+GitHub Actions runs `bundle exec rake ci` on pushes and pull requests using Ruby 4.0. This runs the full test suite and builds the gem; use the same command locally to check both.
 
 The gem is self-contained. Regenerating the typed Adaptive Card classes requires a sibling checkout of Microsoft's Python SDK; see the [Adaptive Cards guide](docs/in-depth-guides/adaptive-cards.md#regenerating).
 
