@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- Use the `jwt` gem for inbound JWT decoding, JWK import, RS256 verification, and standard claim validation instead of handwritten token parsing and RSA key construction
+- Match the JavaScript Teams SDK's signing-key cache defaults: cache up to five keys per JWKS endpoint for ten minutes, fetch uncached keys immediately without rate limiting or negative caching, and reject key-fetch failures as authentication errors
+- Allow five minutes of clock tolerance for inbound JWT expiry and not-before validation, matching the JavaScript Teams SDK
+
+### Fixed
+
+- Recover from signing-key rotation without restarting the bot instead of caching the first JWKS document indefinitely
+- Avoid blocking cached signing-key validation behind slow JWKS or discovery requests while preserving coordinated successful cache misses
+
 ## [2.0.2] - 2026-08-06
 
 ### Added

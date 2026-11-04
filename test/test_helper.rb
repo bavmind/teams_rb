@@ -159,14 +159,16 @@ class FakeApi
 end
 
 class FakeHttp
-  attr_reader :posts, :responses
+  attr_reader :gets, :posts, :responses
 
   def initialize(responses = {})
     @responses = responses
+    @gets = []
     @posts = []
   end
 
   def get(url, **)
+    @gets << url
     respond(url)
   end
 

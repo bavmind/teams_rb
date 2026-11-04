@@ -1,21 +1,24 @@
 # frozen_string_literal: true
 
-require "base64"
-require "json"
-require "openssl"
+require "jwt"
 
 module Teams
   module Auth
     class JwtValidator
+      JWKS_CACHE_TTL = 10 * 60
+      JWKS_CACHE_MAX_ENTRIES = 5
+      CLOCK_TOLERANCE = 5 * 60
+
       def initialize(client_id:, tenant_id: nil, cloud: PUBLIC_CLOUD, http: nil)
         @client_id = client_id
         @tenant_id = tenant_id
         @cloud = cloud
         @http = http || Common::HttpClient.new
         @jwks = {}
-        # The validator is shared across request threads; the mutex keeps
-        # concurrent cold-cache requests from fetching the JWKS repeatedly.
         @jwks_mutex = Mutex.new
+        # Coordinate misses per endpoint without blocking cached-key reads.
+        @jwks_fetch_mutexes = {}
+        @discovery_mutex = Mutex.new
       end
 
       def validate!(authorization_header, service_url: nil)
@@ -24,34 +27,24 @@ module Teams
         scheme, token = authorization_header.split(" ", 2)
         raise AuthenticationError, "Authorization must be Bearer" unless scheme&.casecmp("Bearer")&.zero? && token
 
-        header, payload, signing_input, signature = decode(token)
-        validate_claims!(payload)
+        payload, = JWT.decode(
+          token, nil, true,
+          algorithms: ["RS256"], leeway: CLOCK_TOLERANCE,
+          verify_expiration: true, verify_not_before: true,
+          verify_iss: true, iss: valid_issuers,
+          verify_aud: true, aud: valid_audiences
+        ) do |header, claims|
+          raise AuthenticationError, "JWT payload must be an object" unless claims.is_a?(Hash)
+
+          signing_key(claims["iss"], header["kid"])
+        end
         validate_service_url!(payload, service_url) if service_url
-        verify_signature!(header, signing_input, signature)
         payload
+      rescue JWT::DecodeError => error
+        raise AuthenticationError, "JWT validation failed: #{error.message}"
       end
 
       private
-
-      def decode(token)
-        header_segment, payload_segment, signature_segment = token.split(".")
-        raise AuthenticationError, "JWT must contain three segments" unless signature_segment
-
-        header = JSON.parse(Base64.urlsafe_decode64(pad(header_segment)))
-        payload = JSON.parse(Base64.urlsafe_decode64(pad(payload_segment)))
-        signature = Base64.urlsafe_decode64(pad(signature_segment))
-        [header, payload, "#{header_segment}.#{payload_segment}", signature]
-      rescue JSON::ParserError, ArgumentError
-        raise AuthenticationError, "JWT is malformed"
-      end
-
-      def validate_claims!(payload)
-        now = Time.now.to_i
-        raise AuthenticationError, "JWT expired" if payload["exp"] && now >= payload["exp"].to_i
-        raise AuthenticationError, "JWT not active yet" if payload["nbf"] && now < payload["nbf"].to_i
-        raise AuthenticationError, "JWT issuer is invalid" unless valid_issuer?(payload["iss"])
-        raise AuthenticationError, "JWT audience is invalid" if (Array(payload["aud"]) & valid_audiences).empty?
-      end
 
       # Inbound tokens may be audienced as the bare app id, api://{appId},
       # or api://botid-{appId}; all three SDKs accept all three forms.
@@ -71,77 +64,105 @@ module Teams
         raise AuthenticationError, "Service URL mismatch. Token: #{normalized_token_url}, Expected: #{normalized_expected_url}"
       end
 
-      def verify_signature!(header, signing_input, signature)
-        raise AuthenticationError, "only RS256 JWTs are supported" unless header["alg"] == "RS256"
+      def signing_key(issuer, kid)
+        unless kid.nil? || kid.is_a?(String)
+          raise AuthenticationError, "JWT signing key ID is invalid"
+        end
 
-        key = jwks_for_issuer(signing_input).fetch("keys").find { |candidate| candidate["kid"] == header["kid"] }
-        raise AuthenticationError, "JWT signing key was not found" unless key
+        uri = jwks_uri_for_issuer(issuer)
+        cached = cached_signing_key(uri, kid)
+        return cached if cached
 
-        public_key = rsa_public_key(key)
-        unless public_key.verify(OpenSSL::Digest.new("SHA256"), signature, signing_input)
-          raise AuthenticationError, "JWT signature is invalid"
+        fetch_mutex = @jwks_mutex.synchronize { @jwks_fetch_mutexes[uri] ||= Mutex.new }
+        fetch_mutex.synchronize do
+          cached = cached_signing_key(uri, kid)
+          return cached if cached
+
+          key = fetch_signing_key(uri, kid)
+          @jwks_mutex.synchronize do
+            cache = @jwks[uri]
+            cache.shift if cache.size >= JWKS_CACHE_MAX_ENTRIES
+            cache[kid] = { key:, expires_at: monotonic_time + JWKS_CACHE_TTL }
+          end
+          key
         end
       end
 
-      def jwks_for_issuer(signing_input)
-        _header_segment, payload_segment = signing_input.split(".", 2)
-        payload = JSON.parse(Base64.urlsafe_decode64(pad(payload_segment)))
-        uri = jwks_uri_for_issuer(payload["iss"])
+      def cached_signing_key(uri, kid)
+        @jwks_mutex.synchronize do
+          cache = @jwks[uri] ||= {}
+          cached = cache.delete(kid)
+          if cached && monotonic_time < cached[:expires_at]
+            cache[kid] = cached
+            cached[:key]
+          end
+        end
+      end
 
-        @jwks_mutex.synchronize { @jwks[uri] ||= @http.get(uri) }
-      rescue JSON::ParserError, ArgumentError
-        raise AuthenticationError, "JWT is malformed"
+      def fetch_signing_key(uri, kid)
+        document = @http.get(uri)
+        unless document.is_a?(Hash) && document["keys"].is_a?(Array)
+          raise AuthenticationError, "JWT signing keys response is invalid"
+        end
+
+        keys = document["keys"].select do |key|
+          key.is_a?(Hash) && key["kty"] == "RSA" && [nil, "sig"].include?(key["use"])
+        end
+        if kid.nil? && keys.size != 1
+          raise AuthenticationError, "JWT signing key was not found"
+        end
+        key = kid.nil? ? keys.first : keys.find { |candidate| candidate["kid"] == kid }
+        raise AuthenticationError, "JWT signing key was not found" unless key
+
+        unless [key["n"], key["e"]].all? { |value| value.is_a?(String) && !value.empty? }
+          raise AuthenticationError, "JWT signing key is invalid"
+        end
+
+        JWT::JWK.import(key).verify_key
+      rescue HttpError, Faraday::Error, JWT::DecodeError, ArgumentError, OpenSSL::PKey::PKeyError, OpenSSL::ASN1::ASN1Error => error
+        raise AuthenticationError, "Unable to retrieve JWT signing key: #{error.message}"
       end
 
       def jwks_uri_for_issuer(issuer)
-        return bot_framework_jwks_uri if issuer == @cloud.token_issuer
-        return entra_jwks_uri if @tenant_id && tenant_issuer?(issuer)
+        raise AuthenticationError, "JWT issuer is invalid" unless valid_issuers.include?(issuer)
 
-        bot_framework_jwks_uri
+        issuer == @cloud.token_issuer ? bot_framework_jwks_uri : entra_jwks_uri
       end
 
       def bot_framework_jwks_uri
-        @jwks_mutex.synchronize do
+        @discovery_mutex.synchronize do
           @bot_framework_jwks_uri ||= begin
             metadata = @http.get(@cloud.open_id_metadata_url)
-            metadata.fetch("jwks_uri")
+            unless metadata.is_a?(Hash) && metadata["jwks_uri"].is_a?(String) && !metadata["jwks_uri"].empty?
+              raise AuthenticationError, "JWT signing keys metadata is invalid"
+            end
+
+            metadata["jwks_uri"]
           end
         end
+      rescue HttpError, Faraday::Error => error
+        raise AuthenticationError, "Unable to retrieve JWT signing keys metadata: #{error.message}"
       end
 
       def entra_jwks_uri
         "#{@cloud.login_endpoint}/#{@tenant_id}/discovery/v2.0/keys"
       end
 
-      def valid_issuer?(issuer)
-        return true if issuer == @cloud.token_issuer
-        return false unless @tenant_id
+      def valid_issuers
+        issuers = [@cloud.token_issuer]
+        if @tenant_id
+          issuers.concat(["#{@cloud.login_endpoint}/#{@tenant_id}/v2.0", "https://sts.windows.net/#{@tenant_id}/"])
+        end
 
-        tenant_issuer?(issuer)
-      end
-
-      def tenant_issuer?(issuer)
-        issuer == "#{@cloud.login_endpoint}/#{@tenant_id}/v2.0" ||
-          issuer == "https://sts.windows.net/#{@tenant_id}/"
+        issuers
       end
 
       def normalize_url(value)
         value.to_s.sub(%r{/+\z}, "").downcase
       end
 
-      def rsa_public_key(jwk)
-        n = OpenSSL::BN.new(Base64.urlsafe_decode64(pad(jwk.fetch("n"))), 2)
-        e = OpenSSL::BN.new(Base64.urlsafe_decode64(pad(jwk.fetch("e"))), 2)
-
-        sequence = OpenSSL::ASN1::Sequence([
-          OpenSSL::ASN1::Integer(n),
-          OpenSSL::ASN1::Integer(e)
-        ])
-        OpenSSL::PKey::RSA.new(sequence.to_der)
-      end
-
-      def pad(segment)
-        segment + ("=" * ((4 - segment.length % 4) % 4))
+      def monotonic_time
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
       end
     end
   end
