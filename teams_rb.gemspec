@@ -31,6 +31,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "base64", "~> 0.3"
   spec.add_dependency "faraday", "~> 2.14"
+  spec.add_dependency "jwt", "~> 3.3"
   spec.add_dependency "rack", "~> 3.2"
 
   spec.add_development_dependency "minitest", "~> 6.0"

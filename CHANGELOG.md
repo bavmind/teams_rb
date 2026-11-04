@@ -9,10 +9,21 @@ All notable changes to this project are documented in this file. The format foll
 ### Added
 
 - `Api::AgenticIdentity` and agentic account fields (`agentic_user_id`, `agentic_app_id`, `agentic_app_blueprint_id`, `callback_uri`, plus an `agentic_identity` helper on `Api::Account`) for Agent 365 activities, matching the TypeScript, Python, and .NET SDKs
-- Inbound activity validation now accepts Entra-issued agent tokens: validated against the token's own tenant (bounded per-tenant JWKS cache) with the same three audience forms; the Bot Framework service-token path and the remote-function validation path are unchanged. Entra inbound tokens carry no `serviceurl` claim, so that check applies only to service tokens
+- Inbound activity validation now accepts Entra-issued agent tokens: validated against the token's own tenant (bounded per-tenant JWKS caching) with the same three audience forms; the Bot Framework service-token path and the remote-function validation path are unchanged. Entra inbound tokens carry no `serviceurl` claim, so that check applies only to service tokens
 - `CloudEnvironment#agent_bot_scope` (`https://botapi.skype.com/.default`)
 - `on_agent_lifecycle` plus per-variant routes (`on_agentic_user_identity_created`/`identity_updated`/`manager_updated`/`enabled`/`disabled`/`deleted`/`undeleted`/`workload_onboarding_updated`) for Agent 365 `agentLifecycle` events, discriminated on the activity's `valueType`, with value readers for the lifecycle payload fields
 - Agentic operation (experimental): inbound activities addressed to an agentic user scope the whole turn — context, sends, and streaming — to that identity; `app.agentic_identity` builds identities for proactive work, `post`/`reply`/`update` accept `agentic_identity:`, and `Api::Client#for_agentic_identity` returns an identity-scoped client. Agentic tokens use the three-step Agent 365 exchange (blueprint assertion with `fmi_path`, agentic-app client assertion, user federated-identity grant); the exchange wire forms follow MSAL's documented parameters but are not yet verified against a live Agent 365 tenant
+
+### Changed
+
+- Use the `jwt` gem for inbound JWT decoding, JWK import, RS256 verification, and standard claim validation instead of handwritten token parsing and RSA key construction
+- Match the JavaScript Teams SDK's signing-key cache defaults: cache up to five keys per JWKS endpoint for ten minutes, fetch uncached keys immediately without rate limiting or negative caching, and reject key-fetch failures as authentication errors
+- Allow five minutes of clock tolerance for inbound JWT expiry and not-before validation, matching the JavaScript Teams SDK
+
+### Fixed
+
+- Recover from signing-key rotation without restarting the bot instead of caching the first JWKS document indefinitely
+- Avoid blocking cached signing-key validation behind slow JWKS or discovery requests while preserving coordinated successful cache misses
 
 ## [2.0.2] - 2026-08-06
 
