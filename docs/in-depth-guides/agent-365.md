@@ -1,8 +1,7 @@
 # Agent 365 (experimental)
 
-> Agent 365 support is experimental across the whole Teams SDK family, and the
-> agentic token exchange in `teams_rb` has not yet been verified against a live
-> Agent 365 tenant. Expect changes.
+> Agent 365 support is experimental across the whole Teams SDK family. Expect
+> changes.
 
 Agent 365 gives an app a *stacked identity*: the app registration acts as an
 **agentic app blueprint** (its client id *is* the blueprint id), a tenant can

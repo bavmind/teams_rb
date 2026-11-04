@@ -77,9 +77,8 @@ module Teams
       #   3. the user federated-identity grant (requested_token_use
       #      on_behalf_of, user_object_id=<agenticUserId>), asserted by a
       #      step-2 exchange token - the agentic user token.
-      # LIVE-VERIFY: steps 1 and 3 reproduce MSAL-internal wire forms from
-      # its documented parameters; they have not yet been verified against
-      # a live Agent 365 tenant. Do not release before verifying.
+      # Steps 1 and 3 reproduce MSAL-internal wire forms from its documented
+      # parameters.
       # There is deliberately no app-token fallback: failing is safer than
       # authenticating under the wrong identity, like the other SDKs.
       def agentic_app_token(scope, agentic_app_id:, tenant_id: nil)
