@@ -9,6 +9,7 @@ module Teams
     :open_id_metadata_url,
     :token_issuer,
     :graph_scope,
+    :agent_bot_scope,
     keyword_init: true
   )
 
@@ -19,7 +20,10 @@ module Teams
     token_service_url: "https://token.botframework.com",
     open_id_metadata_url: "https://login.botframework.com/v1/.well-known/openidconfiguration",
     token_issuer: "https://api.botframework.com",
-    graph_scope: "https://graph.microsoft.com/.default"
+    graph_scope: "https://graph.microsoft.com/.default",
+    # Agent ID Bot API scope; sovereign-cloud values are unconfirmed
+    # upstream too.
+    agent_bot_scope: "https://botapi.skype.com/.default"
   )
 
   module CloudEnvironments

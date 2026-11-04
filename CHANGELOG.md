@@ -6,16 +6,28 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-11-05
+
+### Added
+
+- `Api::AgenticIdentity` and agentic account fields (`agentic_user_id`, `agentic_app_id`, `agentic_app_blueprint_id`, `callback_uri`, plus an `agentic_identity` helper on `Api::Account`) for Agent 365 activities, matching the TypeScript, Python, and .NET SDKs
+- Inbound activity validation now accepts Entra-issued agent tokens: validated against the token's own tenant (bounded per-tenant JWKS caching) with the same three audience forms; the Bot Framework service-token path and the remote-function validation path are unchanged. Entra inbound tokens carry no `serviceurl` claim, so that check applies only to service tokens
+- `CloudEnvironment#agent_bot_scope` (`https://botapi.skype.com/.default`)
+- `on_agent_lifecycle` plus per-variant routes (`on_agentic_user_identity_created`/`identity_updated`/`manager_updated`/`enabled`/`disabled`/`deleted`/`undeleted`/`workload_onboarding_updated`) for Agent 365 `agentLifecycle` events, discriminated on the activity's `valueType`, with value readers for the lifecycle payload fields
+- Agentic operation (experimental): inbound activities addressed to an agentic user scope the whole turn — context, sends, and streaming — to that identity; `app.agentic_identity` builds identities for proactive work, `post`/`reply`/`update` accept `agentic_identity:`, and `Api::Client#for_agentic_identity` returns an identity-scoped client. Agentic tokens use the three-step Agent 365 exchange (blueprint assertion with `fmi_path`, agentic-app client assertion, user federated-identity grant)
+- GitHub Actions CI runs the test suite and gem build for pull requests and pushes to main ([#11](https://github.com/bavmind/teams_rb/pull/11), thanks [@dblock](https://github.com/dblock))
+
 ### Changed
 
-- Use the `jwt` gem for inbound JWT decoding, JWK import, RS256 verification, and standard claim validation instead of handwritten token parsing and RSA key construction
-- Match the JavaScript Teams SDK's signing-key cache defaults: cache up to five keys per JWKS endpoint for ten minutes, fetch uncached keys immediately without rate limiting or negative caching, and reject key-fetch failures as authentication errors
-- Allow five minutes of clock tolerance for inbound JWT expiry and not-before validation, matching the JavaScript Teams SDK
+- Use the `jwt` gem (new runtime dependency, `~> 3.3`) for inbound JWT decoding, JWK import, RS256 verification, and standard claim validation instead of handwritten token parsing and RSA key construction ([#12](https://github.com/bavmind/teams_rb/pull/12), thanks [@dblock](https://github.com/dblock))
+- Match the TypeScript SDK's signing-key cache defaults: cache up to five keys per JWKS endpoint for ten minutes, fetch uncached keys immediately without rate limiting or negative caching, and reject key-fetch failures as authentication errors ([#12](https://github.com/bavmind/teams_rb/pull/12), thanks [@dblock](https://github.com/dblock))
+- Allow five minutes of clock tolerance for inbound JWT expiry and not-before validation, matching the TypeScript, Python, and .NET SDKs ([#12](https://github.com/bavmind/teams_rb/pull/12), thanks [@dblock](https://github.com/dblock))
 
 ### Fixed
 
-- Recover from signing-key rotation without restarting the bot instead of caching the first JWKS document indefinitely
-- Avoid blocking cached signing-key validation behind slow JWKS or discovery requests while preserving coordinated successful cache misses
+- Recover from signing-key rotation without restarting the bot instead of caching the first JWKS document indefinitely ([#14](https://github.com/bavmind/teams_rb/issues/14), [#12](https://github.com/bavmind/teams_rb/pull/12), thanks [@dblock](https://github.com/dblock))
+- Avoid blocking cached signing-key validation behind slow JWKS or discovery requests while preserving coordinated successful cache misses ([#12](https://github.com/bavmind/teams_rb/pull/12), thanks [@dblock](https://github.com/dblock))
+- Duplicate `signin/tokenExchange` invokes are deduplicated on the exchange id: each Teams client (desktop, web, mobile) rendering the OAuth card attempts its own silent exchange, and previously each successful one fired `on_sign_in`. Now only the first runs the exchange; duplicates answer 200 without re-emitting, an in-flight duplicate waits for the first result, and failed exchanges are not marked so retries still work. Follows the same fix in the TypeScript SDK (.NET already deduplicated)
 
 ## [2.0.2] - 2026-08-06
 
@@ -75,7 +87,8 @@ the Python SDK made when it joined the family.
 - Thread-safe token management, storage, and JWKS caching for multi-threaded Rack servers
 - Documentation mirroring the official teams-sdk docs structure (getting started, essentials, in-depth guides)
 
-[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.3...HEAD
+[2.0.3]: https://github.com/bavmind/teams_rb/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/bavmind/teams_rb/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bavmind/teams_rb/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/bavmind/teams_rb/releases/tag/v2.0.0

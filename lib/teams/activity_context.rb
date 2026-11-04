@@ -7,12 +7,13 @@ module Teams
   class ActivityContext
     attr_reader :app, :activity, :conversation_reference, :extra, :stream
 
-    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil)
+    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
       @extra = extra
       @stream = stream
+      @api = api
     end
 
     def ref
@@ -31,15 +32,17 @@ module Teams
       app.storage
     end
 
+    # The turn's API client; scoped to the activity's agentic identity when
+    # the app runs as an Agent 365 agent.
     def api
-      app.api
+      @api || app.api
     end
 
     # The TypeScript, Python, and .NET SDKs call this operation `send`.
     # Ruby already defines Object#send for dynamic dispatch, so the public
     # Ruby API uses `post` to avoid shadowing a core language method.
     def post(activity_or_text)
-      app.send_activity(conversation_reference, apply_targeted_defaults(activity_or_text))
+      app.send_activity(conversation_reference, apply_targeted_defaults(activity_or_text), api:)
     end
 
     def reply(activity_or_text)
@@ -140,7 +143,7 @@ module Teams
         ]
       }
 
-      app.send_activity(conversation_reference, payload)
+      app.send_activity(conversation_reference, payload, api:)
       nil
     end
 

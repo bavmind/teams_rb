@@ -10,5 +10,6 @@ Feature guides for building richer Teams apps:
 - [Streaming](streaming.md) — chunked responses, informative updates, events, typed errors
 - [User authentication](user-authentication.md) — OAuth sign-in, token exchange, Azure setup
 - [Tabs and remote functions](tabs.md) — calling the bot backend from a tab with SSO
+- [Agent 365](agent-365.md) — running as an agentic user (experimental)
 - [Meeting events](meeting-events.md) — meeting start/end
 - [Observability](observability.md) — logging and middleware

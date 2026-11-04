@@ -5,8 +5,13 @@ require "jwt"
 module Teams
   module Auth
     class JwtValidator
+      ENTRA_V1_ISSUER_PREFIX = "https://sts.windows.net/"
       JWKS_CACHE_TTL = 10 * 60
       JWKS_CACHE_MAX_ENTRIES = 5
+      # Endpoints are bounded so random tenant ids in unverified inbound
+      # tokens cannot grow the JWKS caches forever, like the
+      # TypeScript/Python validators.
+      MAX_JWKS_ENDPOINTS = 100
       CLOCK_TOLERANCE = 5 * 60
 
       def initialize(client_id:, tenant_id: nil, cloud: PUBLIC_CLOUD, http: nil)
@@ -22,29 +27,92 @@ module Teams
       end
 
       def validate!(authorization_header, service_url: nil)
+        token = bearer_token!(authorization_header)
+        payload = decode!(token, issuers: valid_issuers) do |header, claims|
+          signing_key(jwks_uri_for_issuer(claims["iss"]), header["kid"])
+        end
+        validate_service_url!(payload, service_url) if service_url
+        payload
+      end
+
+      # Validates an inbound activity token. Classic bot activities carry
+      # Bot Framework service tokens and validate exactly like validate!;
+      # Agent 365 activities carry Entra tokens audienced to the agentic app
+      # blueprint, validated against the token's own tenant. The Entra path
+      # skips the serviceurl claim: agentic inbound tokens do not carry it
+      # (upstream revisits once the platform defines a signed equivalent).
+      def validate_inbound_activity!(authorization_header, service_url: nil)
+        token = bearer_token!(authorization_header)
+        claims = unverified_claims(token)
+        return validate_entra_inbound!(token, claims) if entra_issuer?(claims["iss"])
+
+        payload = decode!(token, issuers: valid_issuers) do |header, decoded|
+          signing_key(jwks_uri_for_issuer(decoded["iss"]), header["kid"])
+        end
+        validate_service_url!(payload, service_url) if service_url
+        payload
+      end
+
+      private
+
+      def bearer_token!(authorization_header)
         raise AuthenticationError, "Authorization header is required" if authorization_header.to_s.empty?
 
         scheme, token = authorization_header.split(" ", 2)
         raise AuthenticationError, "Authorization must be Bearer" unless scheme&.casecmp("Bearer")&.zero? && token
 
+        token
+      end
+
+      def decode!(token, issuers:)
         payload, = JWT.decode(
           token, nil, true,
           algorithms: ["RS256"], leeway: CLOCK_TOLERANCE,
           verify_expiration: true, verify_not_before: true,
-          verify_iss: true, iss: valid_issuers,
+          verify_iss: true, iss: issuers,
           verify_aud: true, aud: valid_audiences
         ) do |header, claims|
           raise AuthenticationError, "JWT payload must be an object" unless claims.is_a?(Hash)
+          unless header["kid"].nil? || header["kid"].is_a?(String)
+            raise AuthenticationError, "JWT signing key ID is invalid"
+          end
 
-          signing_key(claims["iss"], header["kid"])
+          yield(header, claims)
         end
-        validate_service_url!(payload, service_url) if service_url
         payload
       rescue JWT::DecodeError => error
         raise AuthenticationError, "JWT validation failed: #{error.message}"
       end
 
-      private
+      def unverified_claims(token)
+        claims, = JWT.decode(token, nil, false)
+        claims.is_a?(Hash) ? claims : {}
+      rescue JWT::DecodeError => error
+        raise AuthenticationError, "JWT validation failed: #{error.message}"
+      end
+
+      def entra_issuer?(issuer)
+        return false unless issuer.is_a?(String)
+
+        issuer.start_with?("#{@cloud.login_endpoint}/") || issuer.start_with?(ENTRA_V1_ISSUER_PREFIX)
+      end
+
+      def validate_entra_inbound!(token, claims)
+        tenant_id = claims["tid"]
+        raise AuthenticationError, "Entra inbound token is missing tid" if tenant_id.to_s.empty?
+
+        issuers = ["#{@cloud.login_endpoint}/#{tenant_id}/v2.0", "#{ENTRA_V1_ISSUER_PREFIX}#{tenant_id}/"]
+        # Cheap claim checks run first so junk inbound tokens cannot trigger
+        # JWKS fetches for arbitrary tenants; decode! re-verifies both after
+        # the signature.
+        raise AuthenticationError, "JWT issuer is invalid" unless issuers.include?(claims["iss"])
+        raise AuthenticationError, "JWT audience is invalid" if (Array(claims["aud"]) & valid_audiences).empty?
+
+        uri = entra_tenant_jwks_uri(tenant_id)
+        decode!(token, issuers: issuers) do |header, _decoded|
+          signing_key(uri, header["kid"])
+        end
+      end
 
       # Inbound tokens may be audienced as the bare app id, api://{appId},
       # or api://botid-{appId}; all three SDKs accept all three forms.
@@ -64,23 +132,29 @@ module Teams
         raise AuthenticationError, "Service URL mismatch. Token: #{normalized_token_url}, Expected: #{normalized_expected_url}"
       end
 
-      def signing_key(issuer, kid)
+      def signing_key(uri, kid)
         unless kid.nil? || kid.is_a?(String)
           raise AuthenticationError, "JWT signing key ID is invalid"
         end
 
-        uri = jwks_uri_for_issuer(issuer)
         cached = cached_signing_key(uri, kid)
         return cached if cached
 
-        fetch_mutex = @jwks_mutex.synchronize { @jwks_fetch_mutexes[uri] ||= Mutex.new }
+        fetch_mutex = @jwks_mutex.synchronize do
+          mutex = @jwks_fetch_mutexes[uri]
+          unless mutex
+            @jwks_fetch_mutexes.shift while @jwks_fetch_mutexes.length >= MAX_JWKS_ENDPOINTS
+            mutex = @jwks_fetch_mutexes[uri] = Mutex.new
+          end
+          mutex
+        end
         fetch_mutex.synchronize do
           cached = cached_signing_key(uri, kid)
           return cached if cached
 
           key = fetch_signing_key(uri, kid)
           @jwks_mutex.synchronize do
-            cache = @jwks[uri]
+            cache = endpoint_cache(uri)
             cache.shift if cache.size >= JWKS_CACHE_MAX_ENTRIES
             cache[kid] = { key:, expires_at: monotonic_time + JWKS_CACHE_TTL }
           end
@@ -90,13 +164,23 @@ module Teams
 
       def cached_signing_key(uri, kid)
         @jwks_mutex.synchronize do
-          cache = @jwks[uri] ||= {}
+          cache = endpoint_cache(uri)
           cached = cache.delete(kid)
           if cached && monotonic_time < cached[:expires_at]
             cache[kid] = cached
             cached[:key]
           end
         end
+      end
+
+      # Must be called while holding @jwks_mutex.
+      def endpoint_cache(uri)
+        cache = @jwks[uri]
+        unless cache
+          @jwks.shift while @jwks.length >= MAX_JWKS_ENDPOINTS
+          cache = @jwks[uri] = {}
+        end
+        cache
       end
 
       def fetch_signing_key(uri, kid)
@@ -126,7 +210,7 @@ module Teams
       def jwks_uri_for_issuer(issuer)
         raise AuthenticationError, "JWT issuer is invalid" unless valid_issuers.include?(issuer)
 
-        issuer == @cloud.token_issuer ? bot_framework_jwks_uri : entra_jwks_uri
+        issuer == @cloud.token_issuer ? bot_framework_jwks_uri : entra_tenant_jwks_uri(@tenant_id)
       end
 
       def bot_framework_jwks_uri
@@ -144,14 +228,14 @@ module Teams
         raise AuthenticationError, "Unable to retrieve JWT signing keys metadata: #{error.message}"
       end
 
-      def entra_jwks_uri
-        "#{@cloud.login_endpoint}/#{@tenant_id}/discovery/v2.0/keys"
+      def entra_tenant_jwks_uri(tenant_id)
+        "#{@cloud.login_endpoint}/#{tenant_id}/discovery/v2.0/keys"
       end
 
       def valid_issuers
         issuers = [@cloud.token_issuer]
         if @tenant_id
-          issuers.concat(["#{@cloud.login_endpoint}/#{@tenant_id}/v2.0", "https://sts.windows.net/#{@tenant_id}/"])
+          issuers.concat(["#{@cloud.login_endpoint}/#{@tenant_id}/v2.0", "#{ENTRA_V1_ISSUER_PREFIX}#{@tenant_id}/"])
         end
 
         issuers
