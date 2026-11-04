@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file. The format foll
 - `on_agent_lifecycle` plus per-variant routes (`on_agentic_user_identity_created`/`identity_updated`/`manager_updated`/`enabled`/`disabled`/`deleted`/`undeleted`/`workload_onboarding_updated`) for Agent 365 `agentLifecycle` events, discriminated on the activity's `valueType`, with value readers for the lifecycle payload fields
 - Agentic operation (experimental): inbound activities addressed to an agentic user scope the whole turn — context, sends, and streaming — to that identity; `app.agentic_identity` builds identities for proactive work, `post`/`reply`/`update` accept `agentic_identity:`, and `Api::Client#for_agentic_identity` returns an identity-scoped client. Agentic tokens use the three-step Agent 365 exchange (blueprint assertion with `fmi_path`, agentic-app client assertion, user federated-identity grant); the exchange wire forms follow MSAL's documented parameters but are not yet verified against a live Agent 365 tenant
 
+### Fixed
+
+- Duplicate `signin/tokenExchange` invokes are deduplicated on the exchange id: each Teams client (desktop, web, mobile) rendering the OAuth card attempts its own silent exchange, and previously each successful one fired `on_sign_in`. Now only the first runs the exchange; duplicates answer 200 without re-emitting, an in-flight duplicate waits for the first result, and failed exchanges are not marked so retries still work. Follows the same fix in the TypeScript SDK (.NET already deduplicated)
+
 ## [2.0.2] - 2026-08-06
 
 ### Added

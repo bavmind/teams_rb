@@ -6,6 +6,7 @@ module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
     DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS_ENV_VAR = "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"
+    MAX_PROCESSED_EXCHANGE_IDS = 1000
     TRUE_ENV_VALUES = %w[1 true yes on].freeze
     FALSE_ENV_VALUES = %w[0 false no off].freeze
 
@@ -462,7 +463,18 @@ module Teams
     def register_default_oauth_handlers
       app = self
 
-      @router.on_signin_token_exchange do |ctx, nxt|
+      # Each Teams client (desktop, web, mobile) that renders the OAuth card
+      # attempts its own silent exchange, so one sign-in can produce several
+      # signin/tokenExchange invokes sharing the same value id. Only the first
+      # runs the exchange and fires sign-in; a duplicate of a completed
+      # exchange answers 200 without re-emitting or chaining, and a duplicate
+      # arriving while the first is in flight waits and returns its result.
+      # Failed exchanges are not marked, so each attempt gets its own 412.
+      exchange_mutex = Mutex.new
+      processed_exchange_ids = []
+      exchange_locks = {}
+
+      perform_token_exchange = lambda do |ctx, nxt|
         value = ctx.activity.value
         begin
           if value.raw["connectionName"] != app.default_connection_name
@@ -501,6 +513,43 @@ module Teams
         ensure
           nxt.call
         end
+      end
+
+      @router.on_signin_token_exchange do |ctx, nxt|
+        exchange_id = ctx.activity.value.raw["id"]
+        next perform_token_exchange.call(ctx, nxt) unless exchange_id
+
+        lock = nil
+        duplicate = exchange_mutex.synchronize do
+          if processed_exchange_ids.include?(exchange_id)
+            true
+          else
+            lock = (exchange_locks[exchange_id] ||= { mutex: Mutex.new, settled: false, result: nil })
+            false
+          end
+        end
+        next Response.new(status: 200) if duplicate
+
+        outcome = lock[:mutex].synchronize do
+          if lock[:settled]
+            lock[:result]
+          else
+            result = perform_token_exchange.call(ctx, nxt)
+            if result.nil?
+              exchange_mutex.synchronize do
+                processed_exchange_ids << exchange_id
+                processed_exchange_ids.shift while processed_exchange_ids.length > MAX_PROCESSED_EXCHANGE_IDS
+              end
+              lock[:result] = Response.new(status: 200)
+            else
+              lock[:result] = result
+            end
+            lock[:settled] = true
+            result
+          end
+        end
+        exchange_mutex.synchronize { exchange_locks.delete(exchange_id) }
+        outcome
       end
 
       @router.on_signin_verify_state do |ctx, nxt|

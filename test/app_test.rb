@@ -1293,6 +1293,69 @@ class AppTest < Minitest::Test
     assert body["failureDetail"]
   end
 
+  def test_default_token_exchange_dedupes_repeat_invokes
+    @api.users.token = "sso-user-token"
+    events = []
+    user_handler_runs = 0
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_signin_token_exchange { |_ctx| user_handler_runs += 1; nil }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["sso-user-token"], events
+    assert_equal 1, @api.users.exchanges.length
+    assert_equal 1, user_handler_runs
+  end
+
+  def test_default_token_exchange_dedupes_per_exchange_id
+    @api.users.token = "sso-user-token"
+    events = []
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+
+    %w[exchange-1 exchange-2].each do |id|
+      payload = message_ext_payload("signin/tokenExchange",
+        "id" => id, "connectionName" => "graph", "token" => "exchangeable")
+      post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    end
+
+    assert_equal 2, events.length
+    assert_equal 2, @api.users.exchanges.length
+  end
+
+  def test_default_token_exchange_failure_is_not_deduped
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    assert_equal 412, last_response.status
+
+    @api.users.token = "sso-user-token"
+    events = []
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert last_response.ok?
+    assert_equal ["sso-user-token"], events
+    assert_equal 2, @api.users.exchanges.length
+  end
+
+  def test_default_token_exchange_without_id_is_not_deduped
+    @api.users.token = "sso-user-token"
+    events = []
+    @teams.on_sign_in { |_ctx, token| events << token.token }
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal 2, events.length
+    assert_equal 2, @api.users.exchanges.length
+  end
+
   def test_default_verify_state_completes_sign_in
     @api.users.token = "interactive-token"
     events = []
