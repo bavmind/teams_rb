@@ -518,6 +518,35 @@ class AppTest < Minitest::Test
     assert_equal "Hello", final["text"]
   end
 
+  def test_stream_chunks_carry_text_format_of_emitted_message
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.update "Planning...", text_format: "plain"
+      ctx.stream.emit Teams::Api::MessageActivity.new("- [x] done", text_format: "extendedmarkdown")
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    informative, chunk, final = @api.sent.map { |entry| entry[1] }
+    assert_equal "plain", informative["textFormat"]
+    assert_equal "extendedmarkdown", chunk["textFormat"]
+    assert_equal "extendedmarkdown", final["textFormat"]
+  end
+
+  def test_stream_chunks_omit_text_format_when_unset
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.update "Thinking..."
+      ctx.stream.emit "Hello"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    informative, chunk, = @api.sent.map { |entry| entry[1] }
+    refute informative.key?("textFormat")
+    refute chunk.key?("textFormat")
+  end
+
   def test_stream_update_without_message_does_not_send_final_message
     @teams.on_message do |ctx|
       fast_stream(ctx.stream)

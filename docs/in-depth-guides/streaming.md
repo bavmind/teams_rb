@@ -12,8 +12,8 @@ teams.on_message do |ctx|
 end
 ```
 
-- `emit(text)` appends to the streamed message.
-- `update(text)` sends an informative status update (shown before content starts).
+- `emit(text)` appends to the streamed message. Chunks use the `text_format` of the last emitted `MessageActivity`, so streamed extended markdown renders as such before the message completes.
+- `update(text, text_format: nil)` sends an informative status update (shown before content starts); `text_format` applies to that update only.
 - `clear_text` discards accumulated text — e.g. to replace streamed text with a final card.
 - `close` finalizes explicitly; it's called for you when the handler returns.
 

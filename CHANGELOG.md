@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `ctx.stream.update(text, text_format:)` sets the text format of an informative update, matching the TypeScript, Python, and .NET SDKs
+
 ### Changed
 
 - Targeted messages are allowed in 1:1 (personal) chats; `send_activity` no longer raises for them, matching the same change in the TypeScript, Python, and .NET SDKs
@@ -13,6 +17,7 @@ All notable changes to this project are documented in this file. The format foll
 ### Fixed
 
 - `ctx.reply` quotes the inbound message only when its id is a plain numeric message id (digits, not all zeros). Invokes, card-button messages, and feedback carry service-generated ids such as `f:<guid>` that the service rejects as quote targets with 400, so `ctx.reply` failed in card, dialog, and feedback handlers; it now sends without a quote there, exactly like `ctx.post`. Matches the same fix in the TypeScript, Python, and .NET SDKs
+- Streamed text chunks carry the `textFormat` of the last emitted message, so streamed extended markdown (task lists, strikethrough) no longer renders as plain markdown until the message closes. Matches the same fix in the TypeScript, Python, and .NET SDKs
 - Targeted message updates no longer send `recipient` in the payload (the recipient of an existing targeted message cannot change; it only selects the targeted endpoint); the returned `SentActivity` still carries it. Matches the TypeScript and Python SDKs
 
 ### Security

@@ -88,12 +88,16 @@ module Teams
       nil
     end
 
-    def update(text)
-      emit(
+    # Sends an informative update. text_format (e.g. "extendedmarkdown")
+    # applies to this update only; omit it for the Teams default (markdown).
+    def update(text, text_format: nil)
+      activity = {
         "type" => "typing",
         "text" => text,
         "channelData" => { "streamType" => "informative" }
-      )
+      }
+      activity["textFormat"] = text_format if text_format
+      emit(activity)
     end
 
     def clear_text
@@ -213,6 +217,7 @@ module Teams
 
       informative_updates = []
       text_chunk = nil
+      text_format = nil
 
       @mutex.synchronize do
         while (activity = @queue.shift)
@@ -227,6 +232,10 @@ module Teams
         end
 
         text_chunk = @text.dup unless @text.empty?
+        # Text chunks take the last emitted message's textFormat, like its
+        # other fields, so they render like the final message. Informative
+        # updates keep their own.
+        text_format = @final_activity && @final_activity["textFormat"]
       end
 
       # Once the stream has timed out, stop sending chunks for this cycle;
@@ -234,7 +243,11 @@ module Teams
       return if @timed_out
 
       informative_updates.each { |activity| send_stream_chunk(activity) }
-      send_stream_chunk("type" => "typing", "text" => text_chunk) if text_chunk
+      if text_chunk
+        chunk = { "type" => "typing", "text" => text_chunk }
+        chunk["textFormat"] = text_format if text_format
+        send_stream_chunk(chunk)
+      end
     rescue StreamCancelledError
       nil
     rescue StandardError => error
