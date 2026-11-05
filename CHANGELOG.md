@@ -19,7 +19,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
-- Targeted messages are allowed in 1:1 (personal) chats; `send_activity` no longer raises for them, matching the same change in the TypeScript, Python, and .NET SDKs
+- Targeted sends are no longer rejected by the SDK in 1:1 (personal) conversations; the Teams service decides whether a targeted message is valid (a plain 1:1 bot chat answers 400 `BadArgument`), matching the same change in the TypeScript, Python, and .NET SDKs
 - Teams no longer supports stopping a stream, so stream cancellation handling is removed: a 403 mentioning cancellation is a `TerminalStreamError` like any other terminal stream failure, emits after it keep working, and the streaming time limit is documented as ten minutes. Matches the TypeScript, Python, and .NET SDKs
 - `signin/verifyState` answers 404 (instead of 412) when no connection accepts the code, and token-exchange deduplication now also holds across instances through conversation state, expires completed exchanges after five minutes, and answers an in-flight duplicate with 412 when the original exchange raised. Matches the TypeScript and Python SDKs
 - `ctx.sign_in` falls through to the OAuth card only when the Token Service answers 404 (no token); other Token Service failures now raise instead of being treated as a signed-out user, matching the Python SDK
