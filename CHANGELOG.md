@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file. The format foll
 
 - Targeted messages are allowed in 1:1 (personal) chats; `send_activity` no longer raises for them, matching the same change in the TypeScript, Python, and .NET SDKs
 
+### Fixed
+
+- Targeted message updates no longer send `recipient` in the payload (the recipient of an existing targeted message cannot change; it only selects the targeted endpoint); the returned `SentActivity` still carries it. Matches the TypeScript and Python SDKs
+
 ### Security
 
 - Entra-authenticated inbound activities are accepted only when the token was requested by the Agent 365 platform app: the caller app is read from `azp`, or from `appid` when `azp` is absent, and compared case-insensitively; tokens requested by any other client app are rejected with 401. Bot Framework tokens are unaffected. Matches the same fix in the TypeScript, Python, and .NET SDKs

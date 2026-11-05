@@ -864,8 +864,9 @@ class AppTest < Minitest::Test
   end
 
   def test_targeted_update_routes_to_targeted_update
+    sent = nil
     @teams.on_message do |ctx|
-      ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
+      sent = ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
         { "id" => "user-1" }, is_targeted: true
       )
     end
@@ -876,6 +877,8 @@ class AppTest < Minitest::Test
     assert_empty @api.updates
     assert_equal 1, @api.targeted_updates.size
     assert_equal "existing-1", @api.targeted_updates.first[1]
+    refute @api.targeted_updates.first[2].key?("recipient")
+    assert_equal true, sent["recipient"]["isTargeted"]
   end
 
   def test_targeted_send_in_personal_chat_uses_targeted_route

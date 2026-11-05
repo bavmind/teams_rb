@@ -367,7 +367,10 @@ module Teams
       service_url = conversation_reference.service_url
 
       response = if id && targeted
-        api.conversations.update_targeted_activity(conversation_id, id, activity, service_url:)
+        # The recipient of an existing targeted message cannot change: it only
+        # selects the targeted endpoint and is dropped from the payload, like
+        # the TypeScript and Python SDKs. The returned activity keeps it.
+        api.conversations.update_targeted_activity(conversation_id, id, activity.except("recipient"), service_url:)
       elsif id
         api.conversations.update_activity(conversation_id, id, activity, service_url:)
       elsif targeted
