@@ -6,6 +6,9 @@ module Teams
   module Auth
     class JwtValidator
       ENTRA_V1_ISSUER_PREFIX = "https://sts.windows.net/"
+      # App id of the Agent 365 platform, the only client app allowed to
+      # request the Entra tokens that authenticate agentic inbound activities.
+      AGENT_365_PLATFORM_APP_ID = "5a807f24-c9de-44ee-a3a7-329e88a00ffc"
       JWKS_CACHE_TTL = 10 * 60
       JWKS_CACHE_MAX_ENTRIES = 5
       # Endpoints are bounded so random tenant ids in unverified inbound
@@ -103,15 +106,27 @@ module Teams
 
         issuers = ["#{@cloud.login_endpoint}/#{tenant_id}/v2.0", "#{ENTRA_V1_ISSUER_PREFIX}#{tenant_id}/"]
         # Cheap claim checks run first so junk inbound tokens cannot trigger
-        # JWKS fetches for arbitrary tenants; decode! re-verifies both after
-        # the signature.
+        # JWKS fetches for arbitrary tenants; decode! re-verifies issuer and
+        # audience after the signature, which also covers the caller app.
         raise AuthenticationError, "JWT issuer is invalid" unless issuers.include?(claims["iss"])
         raise AuthenticationError, "JWT audience is invalid" if (Array(claims["aud"]) & valid_audiences).empty?
+
+        validate_entra_caller_app!(claims)
 
         uri = entra_tenant_jwks_uri(tenant_id)
         decode!(token, issuers: issuers) do |header, _decoded|
           signing_key(uri, header["kid"])
         end
+      end
+
+      # Entra v2 tokens name the requesting client app in azp, v1 tokens in
+      # appid. appid is consulted only when azp is absent, so a present but
+      # wrong azp is rejected. Matches the TypeScript, Python, and .NET SDKs.
+      def validate_entra_caller_app!(claims)
+        caller_app_id = claims.key?("azp") ? claims["azp"] : claims["appid"]
+        return if caller_app_id.is_a?(String) && caller_app_id.casecmp?(AGENT_365_PLATFORM_APP_ID)
+
+        raise AuthenticationError, "Entra inbound token caller app is not allowed: #{caller_app_id.inspect}"
       end
 
       # Inbound tokens may be audienced as the bare app id, api://{appId},

@@ -13,7 +13,9 @@ instantiate **agentic apps** from it, and each app can carry **agentic users**
 Nothing to configure. When Teams delivers an activity to an agentic user, the
 identity arrives on the activity's `recipient` account and the request carries
 an Entra-issued token (accepted automatically alongside classic Bot Framework
-tokens). The SDK scopes the whole turn to that identity — `ctx.post`, replies,
+tokens, but only when the Agent 365 platform requested it — Entra tokens from
+any other client app are rejected with 401). The SDK scopes the whole turn to
+that identity — `ctx.post`, replies,
 and streaming authenticate as the agent, not the app:
 
 ```ruby

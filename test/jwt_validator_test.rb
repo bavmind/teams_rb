@@ -612,6 +612,54 @@ class JwtValidatorTest < Minitest::Test
     assert_empty http.gets
   end
 
+  def test_inbound_activity_entra_accepts_platform_appid_when_azp_absent
+    rsa, kid, cloud, http = validator_parts
+    http.responses["https://login.example.com/tenant-x/discovery/v2.0/keys"] = {
+      "keys" => [JwtTestHelper.jwk_for(rsa, kid:)]
+    }
+    claims = entra_payload.merge(
+      "iss" => "https://sts.windows.net/tenant-x/",
+      "appid" => Teams::Auth::JwtValidator::AGENT_365_PLATFORM_APP_ID.upcase
+    ).tap { |p| p.delete("azp") }
+    token = JwtTestHelper.token(rsa:, kid:, payload: claims)
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    payload = validator.validate_inbound_activity!("Bearer #{token}")
+
+    assert_equal "tenant-x", payload["tid"]
+  end
+
+  def test_inbound_activity_entra_rejects_other_caller_app
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.merge("azp" => "other-app"))
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    error = assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+    assert_equal 'Entra inbound token caller app is not allowed: "other-app"', error.message
+    assert_empty http.gets
+  end
+
+  def test_inbound_activity_entra_azp_takes_precedence_over_appid
+    rsa, kid, cloud, http = validator_parts
+    claims = entra_payload.merge(
+      "azp" => "other-app",
+      "appid" => Teams::Auth::JwtValidator::AGENT_365_PLATFORM_APP_ID
+    )
+    token = JwtTestHelper.token(rsa:, kid:, payload: claims)
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+  end
+
+  def test_inbound_activity_entra_rejects_missing_caller_app
+    rsa, kid, cloud, http = validator_parts
+    token = JwtTestHelper.token(rsa:, kid:, payload: entra_payload.tap { |p| p.delete("azp") })
+    validator = Teams::Auth::JwtValidator.new(client_id: "client-id", cloud:, http:)
+
+    error = assert_raises(Teams::AuthenticationError) { validator.validate_inbound_activity!("Bearer #{token}") }
+    assert_equal "Entra inbound token caller app is not allowed: nil", error.message
+  end
+
   def test_inbound_activity_entra_rejects_forged_signature
     rsa, kid, cloud, http = validator_parts
     http.responses["https://login.example.com/tenant-x/discovery/v2.0/keys"] = {
@@ -692,6 +740,7 @@ class JwtValidatorTest < Minitest::Test
       "iss" => "https://login.example.com/tenant-x/v2.0",
       "tid" => "tenant-x",
       "aud" => "client-id",
+      "azp" => Teams::Auth::JwtValidator::AGENT_365_PLATFORM_APP_ID,
       "nbf" => Time.now.to_i - 60,
       "exp" => Time.now.to_i + 3600
     }

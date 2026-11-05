@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Security
+
+- Entra-authenticated inbound activities are accepted only when the token was requested by the Agent 365 platform app: the caller app is read from `azp`, or from `appid` when `azp` is absent, and compared case-insensitively; tokens requested by any other client app are rejected with 401. Bot Framework tokens are unaffected. Matches the same fix in the TypeScript, Python, and .NET SDKs
+
 ## [2.0.3] - 2026-11-05
 
 ### Added
