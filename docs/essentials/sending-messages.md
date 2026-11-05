@@ -9,7 +9,7 @@ ctx.quote "message-id", "a reply quoting a specific message"
 ctx.update "activity-id", "replaces a previous bot message"
 ```
 
-`post` is Ruby's spelling of the SDKs' `send` (Ruby reserves `Object#send`), with identical semantics — including: an activity that already carries an `id` is **updated** instead of created. `ctx.update` is sugar over exactly that. `reply` adds the Teams quoted-reply entity and placeholder, matching the other SDKs.
+`post` is Ruby's spelling of the SDKs' `send` (Ruby reserves `Object#send`), with identical semantics — including: an activity that already carries an `id` is **updated** instead of created. `ctx.update` is sugar over exactly that. `reply` adds the Teams quoted-reply entity and placeholder, matching the other SDKs — but only when the inbound id is a plain numeric message id (typed messages, edits, deletes, reactions). Invokes and card-button messages carry ids like `f:<guid>` that cannot be quoted, so there `reply` sends exactly like `post`; use `ctx.quote(message_id, ...)` to quote a specific message.
 
 All sends accept a String, a `Teams::Api::MessageActivity`, an Adaptive Card, or a raw activity Hash (symbol or string keys — they're normalized).
 

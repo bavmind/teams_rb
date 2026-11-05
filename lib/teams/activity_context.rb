@@ -5,6 +5,11 @@ require "json"
 
 module Teams
   class ActivityContext
+    # Typed messages, edits, deletes, and reactions carry plain numeric
+    # message ids; invokes and card-button messages carry service-generated
+    # ids such as "f:<guid>", which the service rejects as quote targets.
+    NUMERIC_MESSAGE_ID = /\A0*[1-9][0-9]*\z/
+
     attr_reader :app, :activity, :conversation_reference, :extra, :stream
 
     def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil)
@@ -45,8 +50,11 @@ module Teams
       app.send_activity(conversation_reference, apply_targeted_defaults(activity_or_text), api:)
     end
 
+    # Quotes the inbound message only when its id is a plain numeric message
+    # id (digits, not all zeros), like the TypeScript, Python, and .NET SDKs;
+    # otherwise sends exactly like post. Use quote to quote a specific id.
     def reply(activity_or_text)
-      return post(activity_or_text) unless activity.id
+      return post(activity_or_text) unless NUMERIC_MESSAGE_ID.match?(activity.id.to_s)
       # Replies to targeted inbound messages are targeted sends: no quoted
       # reply and no replyToId, matching the TypeScript and Python SDKs.
       return post(activity_or_text) if targeted_reply?(activity_or_text)

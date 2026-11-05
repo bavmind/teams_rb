@@ -25,14 +25,14 @@ class AppTest < Minitest::Test
       ctx.reply "echo: #{ctx.activity.text}"
     end
 
-    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(teams_payload.merge("id" => "1772129782775")), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
     refute @api.sent.first[1].key?("replyToId")
-    assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
+    assert_equal %(<quoted messageId="1772129782775"/> echo: hello), @api.sent.first[1]["text"]
     assert_equal(
-      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "1772129782775" } }],
       @api.sent.first[1]["entities"]
     )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
@@ -40,6 +40,20 @@ class AppTest < Minitest::Test
     refute @api.sent.first[1].key?("channelId")
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
+  end
+
+  def test_reply_sends_without_quote_when_inbound_id_is_not_a_message_id
+    @teams.on_message { |ctx| ctx.reply "done" }
+
+    ["f:6b3a1c2e-0000-4000-8000-000000000001", "000", "activity-1"].each do |id|
+      post "/api/messages", JSON.generate(teams_payload.merge("id" => id)), { "CONTENT_TYPE" => "application/json" }
+    end
+
+    assert_equal 3, @api.sent.size
+    @api.sent.each do |_conversation_id, outbound|
+      assert_equal "done", outbound["text"]
+      assert_nil outbound["entities"]
+    end
   end
 
   def test_message_pattern_routes
