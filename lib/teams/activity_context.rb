@@ -12,13 +12,14 @@ module Teams
 
     attr_reader :app, :activity, :conversation_reference, :extra, :stream
 
-    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil)
+    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil, files_credential: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
       @extra = extra
       @stream = stream
       @api = api
+      @files_credential = files_credential
     end
 
     def ref
@@ -46,7 +47,9 @@ module Teams
     # The uploaded files on the inbound activity, as Files::IncomingFile
     # handles. See Files::FilesAccessor.
     def files
-      @files ||= Files::FilesAccessor.new(activity, downloader: app.files_downloader, logger: log)
+      @files ||= Files::FilesAccessor.new(
+        activity, downloader: app.files_downloader, credential: @files_credential, logger: log
+      )
     end
 
     # The TypeScript, Python, and .NET SDKs call this operation `send`.

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
+require "base64"
 require "faraday"
+require "json"
 require "uri"
 
 module Teams
@@ -11,6 +13,11 @@ module Teams
     # What a successful fetch resolved: where the bytes came from and their
     # MIME type (the response's, else the file's, else octet-stream).
     OpenedFile = Struct.new(:source_url, :content_type, keyword_init: true)
+
+    # The Graph credential for a turn's file reads: actor names the identity
+    # ("app" or "agentic_user"), token is a callable resolved only when a
+    # Graph read happens, base_url_root the Graph host root.
+    GraphCredential = Struct.new(:actor, :token, :base_url_root, keyword_init: true)
 
     # Fetches inbound file bytes, keyed on the conversation scope so every
     # scope's receive path extends this one place, like the TypeScript,
@@ -29,15 +36,36 @@ module Teams
 
       Response = Struct.new(:status, :headers, :reason_phrase, :error_body, keyword_init: true)
 
+      GRAPH_FILE_PERMISSION_PREFIXES = %w[files. sites.].freeze
+
+      # Whether a file that arrived with only a content URL may be read
+      # through Graph in this scope, as this actor. Shared by the accessor and
+      # the dispatcher so a file list surfaces is always one download opens.
+      # Personal is open to every actor; group chats and channels only to an
+      # agentic user, the only identity the platform delivers files to there.
+      def self.graph_route_open?(scope, actor)
+        return true if scope == "personal"
+
+        actor == "agentic_user" && %w[groupChat channel].include?(scope)
+      end
+
       def initialize(connection: nil, logger: nil)
         @connection = connection || Faraday.new
         @logger = logger
       end
 
       # Streams target's bytes to the block and returns an OpenedFile.
-      def fetch(target, prior_fetch_succeeded: false, &on_chunk)
+      # Personal files take either route; elsewhere only the Graph route, and
+      # only where graph_route_open? allows. A download URL outside personal
+      # keeps the scope error: Graph is never substituted for a URL the
+      # platform supplied.
+      def fetch(target, prior_fetch_succeeded: false, credential: nil, &on_chunk)
         if target.scope == "personal"
-          return fetch_personal(target, prior_fetch_succeeded:, &on_chunk)
+          return fetch_personal(target, prior_fetch_succeeded:, credential:, &on_chunk)
+        end
+
+        if target.download_url.nil? && target.content_url && self.class.graph_route_open?(target.scope, credential&.actor)
+          return fetch_graph(target, target.content_url, credential:, &on_chunk)
         end
 
         raise FileScopeNotSupportedError, target.scope
@@ -45,9 +73,23 @@ module Teams
 
       private
 
-      def fetch_personal(target, prior_fetch_succeeded:, &on_chunk)
+      def fetch_personal(target, prior_fetch_succeeded:, credential:, &on_chunk)
         url = target.download_url
-        raise Error, "cannot download file: no download URL is available" unless url
+        # The agentic user case: a browsable content URL arrives instead of a
+        # download URL, so Graph is the only route to the bytes.
+        unless url
+          raise Error, "cannot download file: no download URL is available" unless target.content_url
+
+          return fetch_graph(target, target.content_url, credential:, &on_chunk)
+        end
+
+        if credential&.actor == "agentic_user"
+          @logger&.warn(
+            "an agentic turn received a file carrying a pre-authorized download URL, which the platform did not " \
+            "previously send to agents. The SDK is using that URL, so these bytes are not attributed to the " \
+            "agentic user."
+          )
+        end
         raise Error, "cannot download file: download URL must use https" unless url.downcase.start_with?("https://")
 
         # Plain GET with no bearer token: the URL embeds its own credential.
@@ -62,6 +104,97 @@ module Teams
         end
 
         opened(url, response, target)
+      end
+
+      # Reads the bytes through Graph /shares as the credential's identity.
+      # Unlike the pre-authorized route this is an ordinary authenticated Graph
+      # call, and a missing consent is detected before the request.
+      def fetch_graph(target, sharing_url, credential:, &on_chunk)
+        actor = credential&.actor
+        token, failure = resolve_graph_token(credential)
+        raise FileCredentialError.new(actor, failure) if token.to_s.empty? || carries_no_graph_permissions?(token)
+
+        url = GraphShare.drive_item_content_url(sharing_url, credential.base_url_root || "https://graph.microsoft.com")
+        @logger&.debug("files: resolving bytes through Graph /shares as '#{actor}'")
+
+        response = get_following_https_redirects(url, { "Authorization" => "Bearer #{token}" }, &on_chunk)
+        if [401, 403].include?(response.status)
+          raise FileAccessError.new(response.status, actor, service_error(response.error_body))
+        end
+        unless success?(response.status)
+          details = service_error(response.error_body)
+          message = "failed to download file through Graph as '#{actor || "app"}': " \
+            "#{response.status} #{response.reason_phrase}".strip
+          raise Error, details ? "#{message} (#{details})" : message
+        end
+
+        opened(url, response, target)
+      end
+
+      # Resolves the token without raising: an acquisition failure degrades to
+      # "no token" with its reason, so it reports as a credential problem.
+      def resolve_graph_token(credential)
+        return [nil, nil] unless credential&.token
+
+        [credential.token.call, nil]
+      rescue StandardError => error
+        @logger&.debug("files: could not acquire a Graph token: #{error.message}")
+        [nil, error.message]
+      end
+
+      # A token that decodes but carries no Files.* or Sites.* permission
+      # cannot reach a drive item; Graph would answer with an ambiguous 401 or
+      # 403. Fails open on an undecodable token (the call proceeds).
+      def carries_no_graph_permissions?(token)
+        permissions = token_permissions(token)
+        return false if permissions.nil?
+
+        permissions.none? do |permission|
+          GRAPH_FILE_PERMISSION_PREFIXES.any? { |prefix| permission.downcase.start_with?(prefix) }
+        end
+      end
+
+      # App-only tokens list application permissions in roles; delegated and
+      # agentic-user tokens list scopes in scp. nil means undecodable.
+      def token_permissions(token)
+        payload = token.split(".")[1]
+        return nil unless payload
+
+        claims = JSON.parse(Base64.urlsafe_decode64(payload + ("=" * (-payload.length % 4))))
+        return nil unless claims.is_a?(Hash)
+
+        roles = claims["roles"].is_a?(Array) ? claims["roles"].grep(String) : []
+        scopes = claims["scp"].is_a?(String) ? claims["scp"].split : []
+        roles + scopes
+      rescue ArgumentError, JSON::ParserError, EncodingError
+        nil
+      end
+
+      # The readable part of a Graph error envelope ({"error": {"code",
+      # "message"}}), falling back to the raw text; a 401 from the edge can be
+      # HTML.
+      def service_error(raw)
+        return nil if raw.nil? || raw.empty?
+
+        text = raw.dup.force_encoding(Encoding::UTF_8).scrub
+        begin
+          envelope = JSON.parse(text)
+          error = envelope["error"] if envelope.is_a?(Hash)
+          if error.is_a?(Hash)
+            parts = [error["code"], error["message"]].select { |part| part && !part.to_s.empty? }.map(&:to_s)
+            return truncate(parts.join(": ")) unless parts.empty?
+          end
+        rescue JSON::ParserError
+          nil
+        end
+        truncate(text)
+      end
+
+      def truncate(text)
+        collapsed = text.split.join(" ")
+        return nil if collapsed.empty?
+
+        collapsed.length > ERROR_BODY_LIMIT ? "#{collapsed[0, ERROR_BODY_LIMIT]}..." : collapsed
       end
 
       def opened(url, response, target)

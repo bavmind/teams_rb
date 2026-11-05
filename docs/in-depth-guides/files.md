@@ -18,6 +18,8 @@ Teams only offers the attach button in a 1:1 chat with your bot when the manifes
 
 Without it no file reaches your handler and `ctx.files.list` is always empty.
 
+For an [Agent 365](agent-365.md) agentic user, an administrator must consent a Graph file permission (such as `Files.Read.All`) on the agent's blueprint instead — see [inheritable permissions](https://learn.microsoft.com/entra/agent-id/concept-inheritable-permissions).
+
 ## Access attached files
 
 ```ruby
@@ -61,6 +63,13 @@ The handle memoizes nothing, so every call fetches again. In a personal chat the
 
 The download is a plain GET with no token attached: the link carries its own credential, and the SDK never sends the bot's token to the storage host. Redirects are followed only over HTTPS.
 
+## Conversation scope support
+
+- **Personal chats.** A traditional bot receives a short-lived, pre-authorized link that the SDK fetches directly. An agentic user receives no link — only `content_url` — so the SDK reads the bytes through Microsoft Graph `/shares` with the agent's own token. Your handler code is the same either way.
+- **Group chats and channels.** Teams delivers files there only to agentic users, again carrying just `content_url`, and the SDK reads them through Graph as the agent. A traditional bot receives no files in these scopes.
+
+An agentic user always reads as itself, never as the app: an app-only token sees what the app may read tenant-wide, a different set from what was shared with the agent.
+
 ## Handle errors
 
 All file errors inherit from `Teams::FileError`:
@@ -68,6 +77,10 @@ All file errors inherit from `Teams::FileError`:
 | Error | Raised when | Carries |
 |---|---|---|
 | `Teams::FileUrlExpiredError` | The short-lived download link lapsed. | `reason`: `"first_fetch"` (no bytes were ever fetched; the file has to be sent again) or `"reread"` (an earlier download succeeded; reuse its `DownloadedFile`) |
+| `Teams::FileCredentialError` | The Graph read an agentic user's file needs was ruled out before the request: no token could be acquired, or the token carries no `Files.*`/`Sites.*` permission. | `actor`, `cause_detail` (why token acquisition failed, when it raised) |
+| `Teams::FileAccessError` | The storage service refused the Graph read. | `status` (`401`: the token was rejected; `403`: the identity lacks the grant — this also covers a file never shared with it and an item that does not exist), `actor`, `details` (the service's own words) |
 | `Teams::FileScopeNotSupportedError` | `download` was called on a file from a scope that cannot be downloaded yet. A traditional bot receives files only in personal chats. | `scope` |
+
+`actor` is `"agentic_user"` when the inbound activity carries an agentic identity, `"app"` otherwise.
 
 Failures the SDK cannot attribute (a storage 5xx, a network error) raise a plain `Teams::Error`.

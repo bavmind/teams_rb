@@ -22,13 +22,14 @@ module Teams
       #   DownloadedFile#content_type is resolved from the download response.
       # extension: extension without the dot, from the platform's fileType.
       # content_url: browsable link to the file in OneDrive/SharePoint, as
-      #   sent on the attachment; not fetchable for bytes.
+      #   sent on the attachment; not fetchable for bytes, but the locator a
+      #   Graph /shares read keys off (the agentic user route).
       # raw: the original attachment hash.
       attr_reader :name, :scope, :source, :attachment_style, :unique_id, :content_type, :extension,
         :content_url, :raw
 
       def initialize(name:, scope:, source:, downloader:, unique_id: nil, content_type: nil, extension: nil,
-        attachment_style: "file", content_url: nil, raw: nil, download_url: nil)
+        attachment_style: "file", content_url: nil, raw: nil, download_url: nil, credential: nil)
         @name = name
         @scope = scope
         @source = source
@@ -40,6 +41,7 @@ module Teams
         @raw = raw
         @download_url = download_url
         @downloader = downloader
+        @credential = credential
         @prior_fetch_succeeded = false
       end
 
@@ -80,7 +82,9 @@ module Teams
       private
 
       def fetch(&on_chunk)
-        opened = @downloader.fetch(target, prior_fetch_succeeded: @prior_fetch_succeeded, &on_chunk)
+        opened = @downloader.fetch(
+          target, prior_fetch_succeeded: @prior_fetch_succeeded, credential: @credential, &on_chunk
+        )
         @prior_fetch_succeeded = true
         opened
       end

@@ -63,6 +63,7 @@ module Teams
       # clouds), like the TypeScript SDK; the app-identity client requests
       # app-only tokens through the client-credentials flow.
       graph_root = cloud.graph_scope.to_s[%r{\Ahttps?://[^/]+}]
+      @graph_base_url_root = graph_root
       @graph = Graph::Client.new(
         token: -> { @token_manager.token_for(cloud.graph_scope, @token_manager.credentials&.tenant_id || cloud.login_tenant) },
         base_url_root: graph_root
@@ -297,7 +298,8 @@ module Teams
         activity:,
         conversation_reference:,
         api: turn_api,
-        stream: HttpStream.new(app: self, conversation_reference:, api: turn_api)
+        stream: HttpStream.new(app: self, conversation_reference:, api: turn_api),
+        files_credential: files_credential(activity, agentic_identity)
       )
       result = run_handlers(context)
       context.stream.close
@@ -600,6 +602,39 @@ module Teams
           nxt.call
         end
       end
+    end
+
+    # The Graph credential for the turn's file reads, resolved only when a
+    # Graph read happens. An agentic user reads as itself, never the app: an
+    # app-only token sees what the app may read tenant-wide, a different set
+    # from what was shared with the agent, like the other SDKs.
+    def files_credential(activity, agentic_identity)
+      tenant_id = activity.conversation&.tenant_id || activity.channel_data&.tenant&.id
+      token = if agentic_identity
+        -> { agentic_graph_token(agentic_identity, tenant_id) }
+      else
+        -> { @token_manager.token_for(@cloud.graph_scope, tenant_id || @token_manager.credentials&.tenant_id || @cloud.login_tenant) }
+      end
+
+      Files::GraphCredential.new(
+        actor: agentic_identity ? "agentic_user" : "app",
+        token:,
+        base_url_root: @graph_base_url_root
+      )
+    end
+
+    # The identity's own tenant wins, then the tenant the activity arrived
+    # from; TokenManager raises when neither is known rather than acquiring
+    # in the wrong directory.
+    def agentic_graph_token(identity, tenant_id)
+      return nil if identity.agentic_app_id.to_s.empty? || identity.agentic_user_id.to_s.empty?
+
+      @token_manager.agentic_user_token(
+        @cloud.graph_scope,
+        agentic_app_id: identity.agentic_app_id,
+        agentic_user_id: identity.agentic_user_id,
+        tenant_id: identity.tenant_id || tenant_id
+      )
     end
 
     # Resolves the auth-bypass setting like the Python SDK: the explicit

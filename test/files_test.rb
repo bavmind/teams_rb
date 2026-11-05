@@ -196,6 +196,140 @@ class FilesTest < Minitest::Test
     server&.close
   end
 
+  SHARING_URL = "https://contoso.sharepoint.com/sites/x/Shared Documents/report.pdf"
+  GRAPH_CONTENT_URL = "https://graph.microsoft.com/v1.0/shares/" \
+    "u!aHR0cHM6Ly9jb250b3NvLnNoYXJlcG9pbnQuY29tL3NpdGVzL3gvU2hhcmVkIERvY3VtZW50cy9yZXBvcnQucGRm/driveItem/content"
+
+  def test_encode_sharing_url_matches_graph_encoding
+    assert_equal GRAPH_CONTENT_URL, Teams::Files::GraphShare.drive_item_content_url(SHARING_URL)
+    assert_equal "http://localhost:8080/v1.0/shares/u!eA/driveItem/content",
+      Teams::Files::GraphShare.drive_item_content_url("x", "http://localhost:8080/")
+    assert_raises(Teams::Error) { Teams::Files::GraphShare.drive_item_content_url("x", "http://graph.example.com") }
+  end
+
+  def test_agentic_personal_file_reads_through_graph_as_the_agent
+    seen = nil
+    @stubs.get(GRAPH_CONTENT_URL) do |env|
+      seen = env.request_headers["Authorization"]
+      [200, { "Content-Type" => "application/pdf" }, "graph-bytes"]
+    end
+
+    file = accessor(activity([agentic_file_attachment]), credential: graph_credential).first
+    downloaded = file.download
+
+    assert_equal "Bearer #{files_token}", seen
+    assert_equal "graph-bytes", downloaded.bytes
+    assert_equal GRAPH_CONTENT_URL, downloaded.source_url
+  end
+
+  def test_group_chat_and_channel_files_open_only_for_agentic_users
+    %w[groupChat channel].each do |scope|
+      agent_files = accessor(activity([agentic_file_attachment], conversation_type: scope), credential: graph_credential).list
+      app_files = accessor(activity([agentic_file_attachment], conversation_type: scope), credential: graph_credential(actor: "app")).list
+
+      assert_equal 1, agent_files.length, scope
+      assert_empty app_files, scope
+    end
+
+    @stubs.get(GRAPH_CONTENT_URL) { [200, {}, "channel-bytes"] }
+    file = accessor(activity([agentic_file_attachment], conversation_type: "channel"), credential: graph_credential).first
+    assert_equal "channel-bytes", file.download.bytes
+  end
+
+  def test_download_url_outside_personal_keeps_the_scope_error_for_agents
+    file = accessor(activity([file_attachment], conversation_type: "groupChat"), credential: graph_credential).first
+
+    assert_raises(Teams::FileScopeNotSupportedError) { file.download }
+  end
+
+  def test_graph_refusal_raises_file_access_error_with_service_details
+    @stubs.get(GRAPH_CONTENT_URL) do
+      [403, { "Content-Type" => "application/json" }, JSON.generate("error" => { "code" => "accessDenied", "message" => "Not shared" })]
+    end
+
+    error = assert_raises(Teams::FileAccessError) do
+      accessor(activity([agentic_file_attachment]), credential: graph_credential).first.download
+    end
+    assert_equal 403, error.status
+    assert_equal "agentic_user", error.actor
+    assert_equal "accessDenied: Not shared", error.details
+    assert_includes error.message, "the agentic user"
+  end
+
+  def test_unexpected_graph_status_carries_service_text
+    @stubs.get(GRAPH_CONTENT_URL) { [503, {}, "<html> busy </html>"] }
+
+    error = assert_raises(Teams::Error) do
+      accessor(activity([agentic_file_attachment]), credential: graph_credential).first.download
+    end
+    refute_kind_of Teams::FileError, error
+    assert_includes error.message, "503"
+    assert_includes error.message, "<html> busy </html>"
+  end
+
+  def test_missing_or_unusable_graph_credentials_fail_before_any_request
+    file = ->(credential) { accessor(activity([agentic_file_attachment]), credential:).first }
+
+    error = assert_raises(Teams::FileCredentialError) { file.call(graph_credential(token: -> {})).download }
+    assert_equal "agentic_user", error.actor
+
+    error = assert_raises(Teams::FileCredentialError) do
+      file.call(graph_credential(token: -> { raise Teams::Error, "tenant unknown" })).download
+    end
+    assert_equal "tenant unknown", error.cause_detail
+
+    error = assert_raises(Teams::FileCredentialError) do
+      file.call(graph_credential(token: -> { jwt_with("scp" => "Mail.Send") })).download
+    end
+    assert_includes error.message, "inheritable permissions"
+  end
+
+  def test_undecodable_token_proceeds_to_graph
+    @stubs.get(GRAPH_CONTENT_URL) { [200, {}, "ok"] }
+
+    file = accessor(activity([agentic_file_attachment]), credential: graph_credential(token: -> { "opaque-token" })).first
+
+    assert_equal "ok", file.download.bytes
+  end
+
+  def test_graph_redirect_to_another_origin_drops_authorization
+    seen = :unset
+    @stubs.get(GRAPH_CONTENT_URL) { [302, { "Location" => "https://contoso-my.sharepoint.com/download.aspx" }, ""] }
+    @stubs.get("https://contoso-my.sharepoint.com/download.aspx") do |env|
+      seen = env.request_headers["Authorization"]
+      [200, {}, "bytes"]
+    end
+
+    accessor(activity([agentic_file_attachment]), credential: graph_credential).first.download
+
+    assert_nil seen
+  end
+
+  def test_app_selects_the_agentic_identity_for_file_reads
+    app = Teams::App.new(api: FakeApi.new, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(nil))
+    recorded = []
+    fake_tokens = Object.new
+    fake_tokens.define_singleton_method(:agentic_user_token) { |scope, **ids| recorded << [scope, ids]; "agent-token" }
+    fake_tokens.define_singleton_method(:token_for) { |scope, tenant| recorded << [scope, tenant]; "app-token" }
+    fake_tokens.define_singleton_method(:credentials) { nil }
+    app.instance_variable_set(:@token_manager, fake_tokens)
+    identity = Teams::Api::AgenticIdentity.new(agentic_app_blueprint_id: "bp", agentic_app_id: "app-1", agentic_user_id: "user-1")
+    inbound = activity([])
+
+    agent = app.send(:files_credential, inbound, identity)
+    plain = app.send(:files_credential, inbound, nil)
+
+    assert_equal "agentic_user", agent.actor
+    assert_equal "agent-token", agent.token.call
+    assert_equal "app", plain.actor
+    assert_equal "app-token", plain.token.call
+    assert_equal "https://graph.microsoft.com", agent.base_url_root
+    assert_equal [
+      ["https://graph.microsoft.com/.default", { agentic_app_id: "app-1", agentic_user_id: "user-1", tenant_id: "tenant-1" }],
+      ["https://graph.microsoft.com/.default", "tenant-1"]
+    ], recorded
+  end
+
   def test_ctx_files_lists_the_inbound_activity_files
     app = Teams::App.new(api: FakeApi.new, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(nil))
     inbound = activity([file_attachment])
@@ -209,8 +343,27 @@ class FilesTest < Minitest::Test
 
   private
 
-  def accessor(activity)
-    Teams::Files::FilesAccessor.new(activity, downloader: @downloader)
+  def accessor(activity, credential: nil)
+    Teams::Files::FilesAccessor.new(activity, downloader: @downloader, credential:)
+  end
+
+  def graph_credential(actor: "agentic_user", token: -> { files_token })
+    Teams::Files::GraphCredential.new(actor:, token:, base_url_root: "https://graph.microsoft.com")
+  end
+
+  def files_token
+    jwt_with("scp" => "Files.Read.All User.Read")
+  end
+
+  def jwt_with(claims)
+    encode = ->(hash) { Base64.urlsafe_encode64(JSON.generate(hash), padding: false) }
+    "#{encode.call("alg" => "none")}.#{encode.call(claims)}.signature"
+  end
+
+  # The agentic user shape: a content URL and content without downloadUrl.
+  def agentic_file_attachment
+    { "contentType" => FILE_TYPE, "name" => "report.pdf", "contentUrl" => SHARING_URL,
+      "content" => { "uniqueId" => "unique-1", "fileType" => "pdf" } }
   end
 
   def activity(attachments, type: "message", conversation_type: "personal")

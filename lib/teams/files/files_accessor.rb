@@ -14,9 +14,12 @@ module Teams
     # an uploaded file is listed. The original attachment stays on
     # IncomingFile#raw.
     class FilesAccessor
-      def initialize(activity, downloader:, logger: nil)
+      # credential is the turn's Files::GraphCredential, used for files that
+      # arrive with only a content URL (agentic users).
+      def initialize(activity, downloader:, credential: nil, logger: nil)
         @activity = activity
         @downloader = downloader
+        @credential = credential
         @logger = logger
       end
 
@@ -51,13 +54,28 @@ module Teams
         return nil unless attachment["contentType"] == Api::FILE_DOWNLOAD_INFO_CONTENT_TYPE
 
         content = coerce_content(attachment["content"])
-        download_url = content&.download_url
+        download_url = string_or_nil(content&.download_url)
         content_url = string_or_nil(attachment["contentUrl"])
         name = string_or_nil(attachment["name"])
 
-        if download_url.nil? || name.nil?
-          missing = name.nil? ? "name" : "a download URL"
-          @logger&.warn("files: skipping file.download.info attachment at index #{index}; missing #{missing}")
+        # A download URL is fetched directly. A content URL without one is the
+        # agentic user shape (content that parsed and declares no downloadUrl
+        # at all) and resolves through Graph where the route is open; a
+        # broken attachment is never spent on a Graph credential.
+        agentic_shape = content && !attachment["content"].key?("downloadUrl")
+        graph_fetchable = agentic_shape && content_url &&
+          Downloader.graph_route_open?(scope, @credential&.actor)
+
+        if name.nil? || !(download_url || graph_fetchable)
+          if name.nil? || !(download_url || content_url)
+            missing = name.nil? ? "name" : "a download or content URL"
+            @logger&.warn("files: skipping file.download.info attachment at index #{index}; missing #{missing}")
+          else
+            @logger&.debug(
+              "files: skipping file.download.info attachment at index #{index}; " \
+              "'#{scope}' scope files are not fetchable yet"
+            )
+          end
           return nil
         end
 
@@ -66,12 +84,13 @@ module Teams
           scope:,
           source: "botActivity",
           attachment_style: "file",
-          unique_id: content.unique_id,
-          extension: content.file_type,
+          unique_id: content&.unique_id,
+          extension: content&.file_type,
           content_url:,
           raw: attachment,
           download_url:,
-          downloader: @downloader
+          downloader: @downloader,
+          credential: @credential
         )
       end
 
