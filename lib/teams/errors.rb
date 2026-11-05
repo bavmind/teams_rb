@@ -23,6 +23,42 @@ module Teams
   # Raised when streaming is not allowed for this user or bot.
   class StreamNotAllowedError < TerminalStreamError; end
 
+  # Base class for the diagnosable failures on the inbound-file path, so one
+  # rescue covers them. A transport or service failure the SDK cannot
+  # attribute surfaces as a plain Teams::Error instead.
+  class FileError < Error; end
+
+  # An inbound file's short-lived download URL expired. reason is
+  # "first_fetch" (no bytes were ever fetched; the file has to be sent again)
+  # or "reread" (an earlier download through the same handle succeeded; reuse
+  # one DownloadedFile instead of re-reading the handle).
+  class FileUrlExpiredError < FileError
+    attr_reader :reason
+
+    def initialize(reason, message = nil)
+      message ||= if reason == "first_fetch"
+        "file download URL expired before any bytes were fetched. The URL is short-lived and cannot be " \
+          "renewed, so the file has to be sent again. Download on arrival rather than holding the handle."
+      else
+        "file download URL expired before a repeat read; reuse a single DownloadedFile from one " \
+          "download call instead of re-reading the handle"
+      end
+      super(message)
+      @reason = reason
+    end
+  end
+
+  # File bytes were requested for a conversation scope whose download path
+  # is not implemented.
+  class FileScopeNotSupportedError < FileError
+    attr_reader :scope
+
+    def initialize(scope, message = nil)
+      super(message || "downloading files from '#{scope}' conversations is not supported via SDK at this time")
+      @scope = scope
+    end
+  end
+
   # A failed Microsoft Graph request; code carries the Graph error code
   # (e.g. "Authorization_RequestDenied") and body the full error payload.
   class GraphError < Error

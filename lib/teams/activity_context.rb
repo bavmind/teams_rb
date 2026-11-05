@@ -43,6 +43,12 @@ module Teams
       @api || app.api
     end
 
+    # The uploaded files on the inbound activity, as Files::IncomingFile
+    # handles. See Files::FilesAccessor.
+    def files
+      @files ||= Files::FilesAccessor.new(activity, downloader: app.files_downloader, logger: log)
+    end
+
     # The TypeScript, Python, and .NET SDKs call this operation `send`.
     # Ruby already defines Object#send for dynamic dispatch, so the public
     # Ruby API uses `post` to avoid shadowing a core language method.

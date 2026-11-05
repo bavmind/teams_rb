@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file. The format foll
 ### Added
 
 - `ctx.stream.update(text, text_format:)` sets the text format of an informative update, matching the TypeScript, Python, and .NET SDKs
+- Receiving files: `ctx.files` lists the inbound activity's uploaded files (`list`/`first`) as lazy `Files::IncomingFile` handles with `download` (a `Files::DownloadedFile` snapshot), `text`, `save_as`, and `stream`; downloads are plain GETs with no bot token, following redirects only over HTTPS. Typed `Teams::FileError` subclasses: `FileUrlExpiredError` (`reason` `first_fetch`/`reread`) and `FileScopeNotSupportedError`. Adds `Api::FileDownloadInfo` and `Api::FILE_DOWNLOAD_INFO_CONTENT_TYPE`. Matches the TypeScript, Python, and .NET SDKs
 - Microsoft Purview sensitivity labels: `Api::SensitivityUsageInfo` (`at_id` label id sent as `@id`, optional `name`/`description`/`position`, `at_type` defaulting to `CreativeWork`), `add_sensitivity_label(label)` writing it to the root message entity (replacing any earlier label), and citation `usage_info:` accepting it (citation usage info now defaults `@type` to `CreativeWork`). Matches the TypeScript, Python, and .NET SDKs
 
 ### Changed

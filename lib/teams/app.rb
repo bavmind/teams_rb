@@ -10,7 +10,8 @@ module Teams
     TRUE_ENV_VALUES = %w[1 true yes on].freeze
     FALSE_ENV_VALUES = %w[0 false no off].freeze
 
-    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph
+    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph,
+      :files_downloader
 
     def client_id
       @token_manager.client_id
@@ -66,6 +67,9 @@ module Teams
         token: -> { @token_manager.token_for(cloud.graph_scope, @token_manager.credentials&.tenant_id || cloud.login_tenant) },
         base_url_root: graph_root
       )
+
+      # One plain connection for inbound file downloads, shared across turns.
+      @files_downloader = Files::Downloader.new(logger:)
 
       register_default_oauth_handlers
       warn_missing_credentials
