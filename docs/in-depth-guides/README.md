@@ -9,6 +9,7 @@ Feature guides for building richer Teams apps:
 - [Message reactions](message-reactions.md) — sending and receiving reactions
 - [Streaming](streaming.md) — chunked responses, informative updates, events, typed errors
 - [Receiving files](files.md) — `ctx.files`: listing, downloading, and streaming attached files
+- [State](state.md) — per-turn conversation and user state (`ctx.state`)
 - [User authentication](user-authentication.md) — OAuth sign-in, token exchange, Azure setup
 - [Tabs and remote functions](tabs.md) — calling the bot backend from a tab with SSO
 - [Agent 365](agent-365.md) — running as an agentic user (experimental)

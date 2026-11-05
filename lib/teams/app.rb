@@ -30,7 +30,8 @@ module Teams
       dangerously_allow_unauthenticated_requests: nil,
       skip_auth: nil,
       messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT,
-      default_connection_name: "graph"
+      default_connection_name: "graph",
+      state: nil
     )
       @default_connection_name = default_connection_name
       @sign_in_handlers = []
@@ -44,6 +45,7 @@ module Teams
       )
       @messaging_endpoint = normalize_messaging_endpoint(messaging_endpoint)
       @router = Router.new
+      @state_loader = create_state_loader(state)
 
       @token_manager = token_manager || Auth::TokenManager.from_env(client_id:, client_secret:, tenant_id:, cloud:)
       @api = api || Api::Client.new(
@@ -300,10 +302,17 @@ module Teams
         api: turn_api,
         stream: HttpStream.new(app: self, conversation_reference:, api: turn_api),
         files_credential: files_credential(activity, agentic_identity),
-        files_bot_api_credential: files_bot_api_credential(activity, agentic_identity, turn_api)
+        files_bot_api_credential: files_bot_api_credential(activity, agentic_identity, turn_api),
+        state: load_turn_state(activity)
       )
-      result = run_handlers(context)
-      context.stream.close
+      processing_completed = false
+      begin
+        result = run_handlers(context)
+        context.stream.close
+        processing_completed = true
+      ensure
+        persist_turn_state(context, processing_completed)
+      end
 
       return result if result.is_a?(Response)
 
@@ -603,6 +612,61 @@ module Teams
           nxt.call
         end
       end
+    end
+
+    # Resolves the state: option like the Python SDK: nil/false disables
+    # state, true enables it on the app's storage, State::StateOptions
+    # configures the storage and key prefix.
+    def create_state_loader(state)
+      return nil unless state
+
+      options = state == true ? State::StateOptions.new : state
+      unless options.is_a?(State::StateOptions)
+        raise ArgumentError, "state: must be true, false, nil, or a Teams::State::StateOptions"
+      end
+
+      storage = options.storage || @storage
+      if storage.is_a?(Storage::MemoryStore)
+        @logger&.warn(
+          "State is enabled with in-memory storage (MemoryStore): per-turn state is lost on restart " \
+          "and is not shared across instances."
+        )
+      end
+      State::TurnStateLoader.new(storage:, key_prefix: options.key_prefix, logger: @logger)
+    end
+
+    # Loads the conversation scope and the user scope (keyed by the
+    # activity's from identity) when state is enabled; nil otherwise.
+    def load_turn_state(activity)
+      return nil unless @state_loader
+
+      conversation_id = activity.conversation&.id
+      return nil if conversation_id.to_s.empty?
+
+      user_id = activity.from&.id
+      @state_loader.load(conversation_id, user_id.to_s.empty? ? nil : user_id)
+    end
+
+    # Saves dirty scopes and seals the state at the end of the turn, also
+    # when a handler raised. A save failure is reported through on_error and
+    # re-raised only when the turn itself succeeded, so it never masks the
+    # handler's error.
+    def persist_turn_state(context, processing_completed)
+      container = context.state
+      return unless @state_loader && container
+
+      begin
+        container.save
+      ensure
+        container.seal
+      end
+    rescue StandardError => error
+      begin
+        emit_error(error, activity: context.activity)
+      rescue StandardError => handler_error
+        logger&.error("Error handler failed while reporting a state persistence failure: #{handler_error.message}")
+      end
+      raise if processing_completed
     end
 
     # The Graph credential for the turn's file reads, resolved only when a

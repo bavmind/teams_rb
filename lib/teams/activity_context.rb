@@ -10,10 +10,12 @@ module Teams
     # ids such as "f:<guid>", which the service rejects as quote targets.
     NUMERIC_MESSAGE_ID = /\A0*[1-9][0-9]*\z/
 
-    attr_reader :app, :activity, :conversation_reference, :extra, :stream
+    # state is the turn's State::TurnStateContainer (ctx.state.conversation,
+    # ctx.state.user), or nil when the app was built without state:.
+    attr_reader :app, :activity, :conversation_reference, :extra, :stream, :state
 
     def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil, files_credential: nil,
-      files_bot_api_credential: nil)
+      files_bot_api_credential: nil, state: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
@@ -22,6 +24,7 @@ module Teams
       @api = api
       @files_credential = files_credential
       @files_bot_api_credential = files_bot_api_credential
+      @state = state
     end
 
     def ref
