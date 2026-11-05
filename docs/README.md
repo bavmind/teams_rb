@@ -14,7 +14,7 @@
 
 - [App basics](essentials/app-basics.md) — configuration, credentials, lifecycle
 - [Listening to activities](essentials/on-activity.md) — routing, middleware, invokes, meeting events
-- [Listening to events](essentials/on-event.md) — `on_sign_in`, `on_error`
+- [Listening to events](essentials/on-event.md) — `on_oauth_sign_in`, `on_oauth_sign_in_failure`, `on_error`
 - [Sending messages](essentials/sending-messages.md) — `post`, `reply`, `quote`, `update`, `typing`, formatting, mentions
 - [Proactive messaging](essentials/proactive-messaging.md) — conversation references, creating conversations, threading
 - [The API client](essentials/api-client.md) — `api.conversations`, `api.teams`, `api.meetings`, `api.users`, `api.bots`

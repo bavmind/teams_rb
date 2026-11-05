@@ -131,7 +131,7 @@ module Teams
     # exchange, signin/verifyState after interactive OAuth card sign-in,
     # signin/failure when the Teams client reports a failed SSO attempt.
     # Default handlers registered at construction complete these flows and
-    # fire on_sign_in / on_error; handlers registered here run after them.
+    # fire on_oauth_sign_in / on_error; handlers registered here run after them.
     def on_signin_token_exchange(&block)
       @router.on_signin_token_exchange(&block)
       self
@@ -167,11 +167,19 @@ module Teams
       self
     end
 
+    # App-level OAuth events use the on_oauth_ prefix, which keeps them apart
+    # from the on_signin_* invoke routes on this object.
+
     # Called with (ctx, token_response) whenever a sign-in completes through
     # the default token-exchange or verify-state handlers.
-    def on_sign_in(&block)
+    def on_oauth_sign_in(&block)
       @sign_in_handlers << block
       self
+    end
+
+    def on_sign_in(&block)
+      warn("App#on_sign_in is deprecated; use App#on_oauth_sign_in.", uplevel: 1, category: :deprecated)
+      on_oauth_sign_in(&block)
     end
 
     # Called with (error, activity) when a default OAuth handler hits an
@@ -183,8 +191,7 @@ module Teams
 
     # Called with an OAuth::SignInFailureEvent when the Teams client reports
     # a failed sign-in (the signin/failure invoke). Terminal Token Service
-    # errors reach only the flows' own on_sign_in_failure handlers. The oauth_
-    # prefix keeps it apart from the on_signin_failure route on this object.
+    # errors reach only the flows' own on_sign_in_failure handlers.
     def on_oauth_sign_in_failure(&block)
       @sign_in_failure_handlers << block
       self

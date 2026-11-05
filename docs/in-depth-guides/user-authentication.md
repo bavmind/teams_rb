@@ -26,12 +26,12 @@ teams.on_message(/^login$/i) do |ctx|
   ctx.reply "Already signed in!" if token   # nil means a card was sent
 end
 
-teams.on_sign_in do |ctx, token_response|
+teams.on_oauth_sign_in do |ctx, token_response|
   ctx.post "Welcome! You're signed in."
 end
 ```
 
-`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card and returns `nil`. In group chats and channels the card is delivered in the conversation as a targeted message only the requesting user sees; in channels the card always uses the sign-in button (silent SSO is not supported in channel scope). The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_sign_in`. You don't handle the invokes yourself.
+`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card and returns `nil`. In group chats and channels the card is delivered in the conversation as a targeted message only the requesting user sees; in channels the card always uses the sign-in button (silent SSO is not supported in channel scope). The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_oauth_sign_in`. You don't handle the invokes yourself.
 
 `ctx.sign_out` clears the stored token.
 
@@ -40,7 +40,7 @@ end
 Most often through the [user Graph client](../essentials/graph.md):
 
 ```ruby
-teams.on_sign_in do |ctx, _token|
+teams.on_oauth_sign_in do |ctx, _token|
   me = ctx.user_graph.get("/me")
   ctx.post "Hello #{me["displayName"]}"
 end
@@ -71,7 +71,7 @@ github.get_token(ctx)            # token or nil
 github.signed_in?(ctx)
 ```
 
-`flow.sign_in` always uses the flow's own connection; its card text defaults to the flow's and can be overridden per call. Flow handlers run in registration order and are isolated: one that raises is logged and the rest still run. The app-level `on_sign_in` still fires for every connection, and `teams.on_oauth_sign_in_failure { |event| ... }` receives each `signin/failure` callback once as a `Teams::OAuth::SignInFailureEvent` (`context`, `connection_name`, `code`, `message`).
+`flow.sign_in` always uses the flow's own connection; its card text defaults to the flow's and can be overridden per call. Flow handlers run in registration order and are isolated: one that raises is logged and the rest still run. The app-level `on_oauth_sign_in` still fires for every connection, and `teams.on_oauth_sign_in_failure { |event| ... }` receives each `signin/failure` callback once as a `Teams::OAuth::SignInFailureEvent` (`context`, `connection_name`, `code`, `message`).
 
 ### How callbacks find their flow
 

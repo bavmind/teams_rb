@@ -1,16 +1,26 @@
 # Listening to events
 
-Beyond activity routes, the app emits two application-level events, registered with named methods (the Ruby counterpart of the TypeScript/Python event emitters).
+Beyond activity routes, the app emits application-level events, registered with named methods (the Ruby counterpart of the TypeScript/Python event emitters). OAuth events carry the `on_oauth_` prefix, which keeps them apart from the `on_signin_*` invoke routes.
 
 ## Sign-in
 
 Fires whenever a user sign-in completes through the default OAuth handlers — both the silent token-exchange path and the interactive card path:
 
 ```ruby
-teams.on_sign_in do |ctx, token_response|
+teams.on_oauth_sign_in do |ctx, token_response|
   ctx.post "Welcome! You're signed in."
   # token_response.token is the user's access token for the
   # OAuth connection's scopes; ctx is the invoke's activity context
+end
+```
+
+## Sign-in failure
+
+Fires when the Teams client reports a failed sign-in (the `signin/failure` invoke), with the connection it was attributed to:
+
+```ruby
+teams.on_oauth_sign_in_failure do |event|
+  event.context.log.warn("Sign-in failed (#{event.connection_name}): #{event.code} #{event.message}")
 end
 ```
 

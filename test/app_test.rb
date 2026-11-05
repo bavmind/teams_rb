@@ -1330,7 +1330,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_completes_sso_and_fires_sign_in
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
+    @teams.on_oauth_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
 
     payload = message_ext_payload("signin/tokenExchange",
       "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
@@ -1339,6 +1339,24 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal [["signin/tokenExchange", "sso-user-token"]], events
     assert_equal "exchangeable", @api.users.exchanges.first[:exchange_request]["token"]
+  end
+
+  def test_deprecated_on_sign_in_still_registers_the_sign_in_event
+    @api.users.token = "sso-user-token"
+    events = []
+    _out, err = capture_io do
+      Warning[:deprecated], previous = true, Warning[:deprecated]
+      @teams.on_sign_in { |_ctx, token| events << token.token }
+    ensure
+      Warning[:deprecated] = previous
+    end
+    assert_match(/App#on_sign_in is deprecated; use App#on_oauth_sign_in/, err)
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal ["sso-user-token"], events
   end
 
   def test_default_token_exchange_returns_412_when_exchange_fails
@@ -1357,7 +1375,7 @@ class AppTest < Minitest::Test
     @api.users.token = "sso-user-token"
     events = []
     user_handler_runs = 0
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
     @teams.on_signin_token_exchange { |_ctx| user_handler_runs += 1; nil }
 
     payload = message_ext_payload("signin/tokenExchange",
@@ -1374,7 +1392,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_dedupes_per_exchange_id
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     %w[exchange-1 exchange-2].each do |id|
       payload = message_ext_payload("signin/tokenExchange",
@@ -1394,7 +1412,7 @@ class AppTest < Minitest::Test
 
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
     post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
@@ -1405,7 +1423,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_without_id_is_not_deduped
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     payload = message_ext_payload("signin/tokenExchange",
       "connectionName" => "graph", "token" => "exchangeable")
@@ -1419,7 +1437,7 @@ class AppTest < Minitest::Test
   def test_default_verify_state_completes_sign_in
     @api.users.token = "interactive-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     payload = message_ext_payload("signin/verifyState", "state" => "123456")
     post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }

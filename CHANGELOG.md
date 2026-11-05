@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Deprecated
 
+- `app.on_sign_in` is renamed `app.on_oauth_sign_in` (same block arguments): app-level OAuth events now carry the `on_oauth_` prefix, like `app.on_oauth_sign_in_failure`, which keeps them apart from the `on_signin_*` invoke routes. The old name still works and emits a deprecation warning.
 - `HttpStream#canceled` always returns false, and `Teams::StreamCancelledError` is never raised
 - `add_sensitivity_label(name, description:, pattern:)` with a label name string; it writes a name-only label without the Purview label id. Pass an `Api::SensitivityUsageInfo` instead
 

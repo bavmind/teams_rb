@@ -19,7 +19,7 @@ class OAuthRoutingTest < Minitest::Test
     flow_events = []
     app_events = []
     github.on_sign_in { |event| flow_events << [event.connection_name, event.token_response.token] }
-    @teams.on_sign_in { |_ctx, token| app_events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| app_events << token.token }
     @api.users.token = "gh-token"
 
     post_json(exchange_payload("GitHub"))
