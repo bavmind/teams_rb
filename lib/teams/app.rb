@@ -6,11 +6,12 @@ module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
     DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS_ENV_VAR = "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"
-    MAX_PROCESSED_EXCHANGE_IDS = 1000
     TRUE_ENV_VALUES = %w[1 true yes on].freeze
     FALSE_ENV_VALUES = %w[0 false no off].freeze
 
-    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph
+    # files_downloader and oauth_registry are plumbing for ActivityContext.
+    attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph,
+      :files_downloader, :oauth_registry
 
     def client_id
       @token_manager.client_id
@@ -29,11 +30,15 @@ module Teams
       dangerously_allow_unauthenticated_requests: nil,
       skip_auth: nil,
       messaging_endpoint: DEFAULT_MESSAGING_ENDPOINT,
-      default_connection_name: "graph"
+      default_connection_name: "graph",
+      state: nil
     )
       @default_connection_name = default_connection_name
       @sign_in_handlers = []
+      @sign_in_failure_handlers = []
       @error_handlers = []
+      @oauth_registry = OAuth::FlowRegistry.new
+      @state_option = state
       @functions = {}
       @logger = logger
       @storage = storage
@@ -43,6 +48,7 @@ module Teams
       )
       @messaging_endpoint = normalize_messaging_endpoint(messaging_endpoint)
       @router = Router.new
+      @state_loader = create_state_loader(state)
 
       @token_manager = token_manager || Auth::TokenManager.from_env(client_id:, client_secret:, tenant_id:, cloud:)
       @api = api || Api::Client.new(
@@ -62,11 +68,16 @@ module Teams
       # clouds), like the TypeScript SDK; the app-identity client requests
       # app-only tokens through the client-credentials flow.
       graph_root = cloud.graph_scope.to_s[%r{\Ahttps?://[^/]+}]
+      @graph_base_url_root = graph_root
       @graph = Graph::Client.new(
         token: -> { @token_manager.token_for(cloud.graph_scope, @token_manager.credentials&.tenant_id || cloud.login_tenant) },
         base_url_root: graph_root
       )
 
+      # One plain connection for inbound file downloads, shared across turns.
+      @files_downloader = Files::Downloader.new(logger:)
+
+      @oauth_handlers = OAuth::Handlers.new(self)
       register_default_oauth_handlers
       warn_missing_credentials
     end
@@ -120,7 +131,7 @@ module Teams
     # exchange, signin/verifyState after interactive OAuth card sign-in,
     # signin/failure when the Teams client reports a failed SSO attempt.
     # Default handlers registered at construction complete these flows and
-    # fire on_sign_in / on_error; handlers registered here run after them.
+    # fire on_oauth_sign_in / on_error; handlers registered here run after them.
     def on_signin_token_exchange(&block)
       @router.on_signin_token_exchange(&block)
       self
@@ -156,11 +167,19 @@ module Teams
       self
     end
 
+    # App-level OAuth events use the on_oauth_ prefix, which keeps them apart
+    # from the on_signin_* invoke routes on this object.
+
     # Called with (ctx, token_response) whenever a sign-in completes through
     # the default token-exchange or verify-state handlers.
-    def on_sign_in(&block)
+    def on_oauth_sign_in(&block)
       @sign_in_handlers << block
       self
+    end
+
+    def on_sign_in(&block)
+      warn("App#on_sign_in is deprecated; use App#on_oauth_sign_in.", uplevel: 1, category: :deprecated)
+      on_oauth_sign_in(&block)
     end
 
     # Called with (error, activity) when a default OAuth handler hits an
@@ -170,8 +189,62 @@ module Teams
       self
     end
 
+    # Called with an OAuth::SignInFailureEvent when the Teams client reports
+    # a failed sign-in (the signin/failure invoke). Terminal Token Service
+    # errors reach only the flows' own on_sign_in_failure handlers.
+    def on_oauth_sign_in_failure(&block)
+      @sign_in_failure_handlers << block
+      self
+    end
+
+    # Registers a named OAuth connection and returns its OAuth::Flow, like
+    # the Python SDK's add_oauth_flow. Connection names are case-insensitive
+    # and must be unique. Registering a flow turns on per-turn state when the
+    # state: option was left unset, because connection-less callbacks need
+    # somewhere to record which connection a sign-in started on; pass
+    # state: false to opt out (pending sign-ins then use a bounded
+    # process-local cache).
+    def add_oauth_flow(connection_name, oauth_card_text: OAuth::DEFAULT_OAUTH_CARD_TEXT,
+      sign_in_button_text: OAuth::DEFAULT_SIGN_IN_BUTTON_TEXT)
+      flow = @oauth_registry.add(
+        OAuth::Flow.new(connection_name, oauth_card_text:, sign_in_button_text:, logger:)
+      )
+      # Only after the registry accepted it, so a rejected duplicate cannot
+      # switch state on.
+      if @state_option.nil? && @state_loader.nil?
+        @state_loader = create_state_loader(true)
+        logger&.debug(
+          "Enabled per-turn state because an OAuth flow was registered and no state option was set. " \
+          "Pass state: false to opt out, or state: true / StateOptions to choose the storage."
+        )
+      end
+      flow
+    end
+
+    # The registered flow for a connection (case-insensitive); raises when
+    # none is registered.
+    def get_oauth_flow(connection_name)
+      flow = @oauth_registry[connection_name]
+      return flow if flow
+
+      registered = @oauth_registry.names.join(", ")
+      registered = "<none>" if registered.empty?
+      raise ArgumentError,
+        "No OAuth flow registered for connection '#{connection_name}'. Registered connections: #{registered}."
+    end
+
     def emit_sign_in(context, token_response)
       @sign_in_handlers.each { |handler| handler.call(context, token_response) }
+    end
+
+    def emit_sign_in_failure(event)
+      @sign_in_failure_handlers.each { |handler| handler.call(event) }
+    end
+
+    # Process-local pending sign-ins, used when per-turn state is off.
+    # Plumbing for ActivityContext#sign_in.
+    def oauth_pending_cache
+      @oauth_handlers.pending_cache
     end
 
     def emit_error(error, activity: nil)
@@ -293,17 +366,24 @@ module Teams
         activity:,
         conversation_reference:,
         api: turn_api,
-        stream: HttpStream.new(app: self, conversation_reference:, api: turn_api)
+        stream: HttpStream.new(app: self, conversation_reference:, api: turn_api),
+        files_credential: files_credential(activity, agentic_identity),
+        files_bot_api_credential: files_bot_api_credential(activity, agentic_identity, turn_api),
+        state: load_turn_state(activity)
       )
-      result = run_handlers(context)
-      context.stream.close
+      processing_completed = false
+      begin
+        result = run_handlers(context)
+        context.stream.close
+        processing_completed = true
+      ensure
+        persist_turn_state(context, processing_completed)
+      end
 
       return result if result.is_a?(Response)
 
       body = activity.invoke? ? invoke_response_body(result) : nil
       Response.new(status: 200, body:)
-    rescue StreamCancelledError
-      Response.new(status: 200)
     end
 
     # Builds an Api::AgenticIdentity for proactive agentic operations: the
@@ -362,17 +442,15 @@ module Teams
     def send_activity(conversation_reference, activity_or_text, api: self.api)
       activity = activity_for_reference(conversation_reference, activity_or_text)
       targeted = targeted_activity?(activity)
-
-      if targeted && conversation_reference.conversation.conversation_type == "personal"
-        raise ArgumentError, "Targeted messages are not supported in 1:1 (personal) chats."
-      end
-
       id = activity_id(activity)
       conversation_id = conversation_reference.conversation_id
       service_url = conversation_reference.service_url
 
       response = if id && targeted
-        api.conversations.update_targeted_activity(conversation_id, id, activity, service_url:)
+        # The recipient of an existing targeted message cannot change: it only
+        # selects the targeted endpoint and is dropped from the payload, like
+        # the TypeScript and Python SDKs. The returned activity keeps it.
+        api.conversations.update_targeted_activity(conversation_id, id, activity.except("recipient"), service_url:)
       elsif id
         api.conversations.update_activity(conversation_id, id, activity, service_url:)
       elsif targeted
@@ -455,151 +533,115 @@ module Teams
       value.to_s.empty? ? nil : value
     end
 
-    # Default OAuth handlers, mirroring the TypeScript/Python OauthHandlers:
-    # registered first on the signin routes, they complete the flows, fire
-    # the sign-in/error events, and chain to user handlers via next. Their
-    # return value is the invoke response; 412 tells the Teams client to
-    # fall back to the interactive card flow.
+    # Default OAuth handlers (OAuth::Handlers), registered first on the signin
+    # routes so they complete the flows and chain to user handlers via next.
     def register_default_oauth_handlers
-      app = self
+      handlers = @oauth_handlers
+      @router.on_signin_token_exchange { |ctx, nxt| handlers.token_exchange(ctx, nxt) }
+      @router.on_signin_verify_state { |ctx, nxt| handlers.verify_state(ctx, nxt) }
+      @router.on_signin_failure { |ctx, nxt| handlers.failure(ctx, nxt) }
+    end
+    
+    # Resolves the state: option like the Python SDK: nil/false disables
+    # state, true enables it on the app's storage, State::StateOptions
+    # configures the storage and key prefix.
+    def create_state_loader(state)
+      return nil unless state
 
-      # Each Teams client (desktop, web, mobile) that renders the OAuth card
-      # attempts its own silent exchange, so one sign-in can produce several
-      # signin/tokenExchange invokes sharing the same value id. Only the first
-      # runs the exchange and fires sign-in; a duplicate of a completed
-      # exchange answers 200 without re-emitting or chaining, and a duplicate
-      # arriving while the first is in flight waits and returns its result.
-      # Failed exchanges are not marked, so each attempt gets its own 412.
-      exchange_mutex = Mutex.new
-      processed_exchange_ids = []
-      exchange_locks = {}
-
-      perform_token_exchange = lambda do |ctx, nxt|
-        value = ctx.activity.value
-        begin
-          if value.raw["connectionName"] != app.default_connection_name
-            app.logger&.warn(
-              "Sign-in token exchange invoked with connection name #{value.raw["connectionName"].inspect}, " \
-              "but the default connection name is #{app.default_connection_name.inspect}. " \
-              "Token verification will likely fail."
-            )
-          end
-
-          begin
-            token = ctx.api.users.exchange_token(
-              user_id: ctx.activity.from.id,
-              connection_name: value.raw["connectionName"],
-              channel_id: ctx.activity.channel_id,
-              exchange_request: { "token" => value.raw["token"] }
-            )
-            app.emit_sign_in(ctx, token)
-            nil
-          rescue HttpError => error
-            unless [404, 400, 412].include?(error.status)
-              app.logger&.error("Error exchanging token: #{error.message}")
-              app.emit_error(error, activity: ctx.activity)
-              next Response.new(status: error.status || 500)
-            end
-
-            Response.new(
-              status: 412,
-              body: {
-                "id" => value.raw["id"],
-                "connectionName" => value.raw["connectionName"],
-                "failureDetail" => error.message
-              }
-            )
-          end
-        ensure
-          nxt.call
-        end
+      options = state == true ? State::StateOptions.new : state
+      unless options.is_a?(State::StateOptions)
+        raise ArgumentError, "state: must be true, false, nil, or a Teams::State::StateOptions"
       end
 
-      @router.on_signin_token_exchange do |ctx, nxt|
-        exchange_id = ctx.activity.value.raw["id"]
-        next perform_token_exchange.call(ctx, nxt) unless exchange_id
+      storage = options.storage || @storage
+      if storage.is_a?(Storage::MemoryStore)
+        @logger&.warn(
+          "State is enabled with in-memory storage (MemoryStore): per-turn state is lost on restart " \
+          "and is not shared across instances."
+        )
+      end
+      State::TurnStateLoader.new(storage:, key_prefix: options.key_prefix, logger: @logger)
+    end
 
-        lock = nil
-        duplicate = exchange_mutex.synchronize do
-          if processed_exchange_ids.include?(exchange_id)
-            true
-          else
-            lock = (exchange_locks[exchange_id] ||= { mutex: Mutex.new, settled: false, result: nil })
-            false
-          end
-        end
-        next Response.new(status: 200) if duplicate
+    # Loads the conversation scope and the user scope (keyed by the
+    # activity's from identity) when state is enabled; nil otherwise.
+    def load_turn_state(activity)
+      return nil unless @state_loader
 
-        outcome = lock[:mutex].synchronize do
-          if lock[:settled]
-            lock[:result]
-          else
-            result = perform_token_exchange.call(ctx, nxt)
-            if result.nil?
-              exchange_mutex.synchronize do
-                processed_exchange_ids << exchange_id
-                processed_exchange_ids.shift while processed_exchange_ids.length > MAX_PROCESSED_EXCHANGE_IDS
-              end
-              lock[:result] = Response.new(status: 200)
-            else
-              lock[:result] = result
-            end
-            lock[:settled] = true
-            result
-          end
-        end
-        exchange_mutex.synchronize { exchange_locks.delete(exchange_id) }
-        outcome
+      conversation_id = activity.conversation&.id
+      return nil if conversation_id.to_s.empty?
+
+      user_id = activity.from&.id
+      @state_loader.load(conversation_id, user_id.to_s.empty? ? nil : user_id)
+    end
+
+    # Saves dirty scopes and seals the state at the end of the turn, also
+    # when a handler raised. A save failure is reported through on_error and
+    # re-raised only when the turn itself succeeded, so it never masks the
+    # handler's error.
+    def persist_turn_state(context, processing_completed)
+      container = context.state
+      return unless @state_loader && container
+
+      begin
+        container.save
+      ensure
+        container.seal
+      end
+    rescue StandardError => error
+      begin
+        emit_error(error, activity: context.activity)
+      rescue StandardError => handler_error
+        logger&.error("Error handler failed while reporting a state persistence failure: #{handler_error.message}")
+      end
+      raise if processing_completed
+    end
+
+    # The Graph credential for the turn's file reads, resolved only when a
+    # Graph read happens. An agentic user reads as itself, never the app: an
+    # app-only token sees what the app may read tenant-wide, a different set
+    # from what was shared with the agent, like the other SDKs.
+    def files_credential(activity, agentic_identity)
+      tenant_id = activity.conversation&.tenant_id || activity.channel_data&.tenant&.id
+      token = if agentic_identity
+        -> { agentic_graph_token(agentic_identity, tenant_id) }
+      else
+        -> { @token_manager.token_for(@cloud.graph_scope, tenant_id || @token_manager.credentials&.tenant_id || @cloud.login_tenant) }
       end
 
-      @router.on_signin_verify_state do |ctx, nxt|
-        begin
-          state = ctx.activity.value.raw["state"]
-          if state.to_s.empty?
-            app.logger&.warn("Auth state not present on signin/verifyState invoke")
-            next Response.new(status: 404)
-          end
+      Files::GraphCredential.new(
+        actor: agentic_identity ? "agentic_user" : "app",
+        token:,
+        base_url_root: @graph_base_url_root
+      )
+    end
 
-          begin
-            token = ctx.api.users.get_token(
-              user_id: ctx.activity.from.id,
-              connection_name: app.default_connection_name,
-              channel_id: ctx.activity.channel_id,
-              code: state
-            )
-            app.emit_sign_in(ctx, token)
-            nil
-          rescue HttpError => error
-            app.logger&.error("Error verifying sign-in state: #{error.message}")
-            unless [404, 400, 412].include?(error.status)
-              app.emit_error(error, activity: ctx.activity)
-              next Response.new(status: error.status || 500)
-            end
-
-            Response.new(status: 412)
-          end
-        ensure
-          nxt.call
+    # Inline images are read with the turn's Bot API token (the agentic
+    # identity's when the turn is scoped to one), resolved only on download
+    # and sent only under the activity's service URL.
+    def files_bot_api_credential(activity, agentic_identity, turn_api)
+      Files::BotApiCredential.new(
+        actor: agentic_identity ? "agentic_user" : "app",
+        service_url: activity.service_url,
+        token: lambda do
+          token = turn_api.http.token
+          token.respond_to?(:call) ? token.call : token
         end
-      end
+      )
+    end
 
-      @router.on_signin_failure do |ctx, nxt|
-        begin
-          value = ctx.activity.value
-          app.logger&.warn(
-            "Sign-in failed: #{value.raw["code"]} - #{value.raw["message"]}. " \
-            "If the code is 'resourcematchfailed', verify the Entra app registration's " \
-            "Application ID URI matches the OAuth connection's Token Exchange URL."
-          )
-          app.emit_error(
-            Error.new("Sign-in failure: #{value.raw["code"]} - #{value.raw["message"]}"),
-            activity: ctx.activity
-          )
-          nil
-        ensure
-          nxt.call
-        end
-      end
+    # The identity's own tenant wins, then the tenant the activity arrived
+    # from; TokenManager raises when neither is known rather than acquiring
+    # in the wrong directory.
+    def agentic_graph_token(identity, tenant_id)
+      return nil if identity.agentic_app_id.to_s.empty? || identity.agentic_user_id.to_s.empty?
+
+      @token_manager.agentic_user_token(
+        @cloud.graph_scope,
+        agentic_app_id: identity.agentic_app_id,
+        agentic_user_id: identity.agentic_user_id,
+        tenant_id: identity.tenant_id || tenant_id
+      )
     end
 
     # Resolves the auth-bypass setting like the Python SDK: the explicit

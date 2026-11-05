@@ -12,8 +12,8 @@ teams.on_message do |ctx|
 end
 ```
 
-- `emit(text)` appends to the streamed message.
-- `update(text)` sends an informative status update (shown before content starts).
+- `emit(text)` appends to the streamed message. Chunks use the `text_format` of the last emitted `MessageActivity`, so streamed extended markdown renders as such before the message completes.
+- `update(text, text_format: nil)` sends an informative status update (shown before content starts); `text_format` applies to that update only.
 - `clear_text` discards accumulated text — e.g. to replace streamed text with a final card.
 - `close` finalizes explicitly; it's called for you when the handler returns.
 
@@ -39,12 +39,13 @@ ctx.stream.on_close { |sent| Analytics.record_stream(sent.id) }
 
 ## Reuse and typed errors
 
-Emitting again after `close` starts a **new** streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors:
+Emitting again after `close` starts a **new** streamed message on the same stream. If Teams rejects a stream, the SDK raises typed errors:
 
-- `Teams::StreamCancelledError` — the user cancelled (sticky: the next `emit` also raises)
 - `Teams::StreamNotAllowedError`, `Teams::TerminalStreamError` — terminal failures
 
-Chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams two-minute limit finalizes automatically by updating the streamed message in place.
+Chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams ten-minute limit (counted from the first informative or content chunk) finalizes automatically by updating the streamed message in place.
+
+Teams no longer supports stopping a stream, so `canceled` always returns false and `Teams::StreamCancelledError` is never raised; both are deprecated.
 
 ## Gotchas
 

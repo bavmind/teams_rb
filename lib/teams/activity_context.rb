@@ -5,15 +5,26 @@ require "json"
 
 module Teams
   class ActivityContext
-    attr_reader :app, :activity, :conversation_reference, :extra, :stream
+    # Typed messages, edits, deletes, and reactions carry plain numeric
+    # message ids; invokes and card-button messages carry service-generated
+    # ids such as "f:<guid>", which the service rejects as quote targets.
+    NUMERIC_MESSAGE_ID = /\A0*[1-9][0-9]*\z/
 
-    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil)
+    # state is the turn's State::TurnStateContainer (ctx.state.conversation,
+    # ctx.state.user), or nil when the app was built without state:.
+    attr_reader :app, :activity, :conversation_reference, :extra, :stream, :state
+
+    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil, files_credential: nil,
+      files_bot_api_credential: nil, state: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
       @extra = extra
       @stream = stream
       @api = api
+      @files_credential = files_credential
+      @files_bot_api_credential = files_bot_api_credential
+      @state = state
     end
 
     def ref
@@ -38,6 +49,18 @@ module Teams
       @api || app.api
     end
 
+    # The uploaded files and pasted inline images on the inbound activity, as
+    # Files::IncomingFile handles. See Files::FilesAccessor.
+    def files
+      @files ||= Files::FilesAccessor.new(
+        activity,
+        downloader: app.files_downloader,
+        credential: @files_credential,
+        bot_api_credential: @files_bot_api_credential,
+        logger: log
+      )
+    end
+
     # The TypeScript, Python, and .NET SDKs call this operation `send`.
     # Ruby already defines Object#send for dynamic dispatch, so the public
     # Ruby API uses `post` to avoid shadowing a core language method.
@@ -45,8 +68,11 @@ module Teams
       app.send_activity(conversation_reference, apply_targeted_defaults(activity_or_text), api:)
     end
 
+    # Quotes the inbound message only when its id is a plain numeric message
+    # id (digits, not all zeros), like the TypeScript, Python, and .NET SDKs;
+    # otherwise sends exactly like post. Use quote to quote a specific id.
     def reply(activity_or_text)
-      return post(activity_or_text) unless activity.id
+      return post(activity_or_text) unless NUMERIC_MESSAGE_ID.match?(activity.id.to_s)
       # Replies to targeted inbound messages are targeted sends: no quoted
       # reply and no replyToId, matching the TypeScript and Python SDKs.
       return post(activity_or_text) if targeted_reply?(activity_or_text)
@@ -99,20 +125,17 @@ module Teams
     # chats and channels the card is a targeted message visible only to the
     # requesting user; channels omit the token exchange resource because
     # channel scope cannot do the silent SSO exchange, so the card renders
-    # the sign-in button instead.
+    # the sign-in button instead. With registered OAuth flows, prefer
+    # app.get_oauth_flow(name).sign_in(ctx), which pins the connection to
+    # the flow that owns it (the Python SDK marks this helper deprecated in
+    # its documentation for the same reason).
     def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
       connection_name ||= app.default_connection_name
 
-      begin
-        response = api.users.get_token(
-          user_id: activity.from.id,
-          connection_name:,
-          channel_id: activity.channel_id
-        )
-        return response.token if response.token && !response.token.to_s.empty?
-      rescue HttpError
-        # No token yet; continue with the OAuth card flow.
-      end
+      connection_name = OAuth.normalize_connection_name(connection_name)
+
+      token = get_user_token(connection_name:)
+      return token if token && !token.to_s.empty?
 
       state = Base64.strict_encode64(JSON.generate(
         "connectionName" => connection_name,
@@ -143,8 +166,58 @@ module Teams
         ]
       }
 
-      app.send_activity(conversation_reference, payload, api:)
+      send_sign_in_card(payload, connection_name, sso_offered: card.key?("tokenExchangeResource"))
       nil
+    end
+
+    # The user's token for a connection (default: the app's default
+    # connection), or nil when not signed in. Only the Token Service's 404
+    # means "not signed in"; other failures raise, so an outage is never
+    # mistaken for a signed-out user. Prefer app.get_oauth_flow(name).get_token
+    # with registered flows.
+    def get_user_token(connection_name: nil)
+      api.users.get_token(
+        user_id: activity.from.id,
+        connection_name: connection_name || app.default_connection_name,
+        channel_id: activity.channel_id
+      ).token
+    rescue HttpError => error
+      raise unless error.status == 404
+
+      nil
+    end
+
+    # Token status for every OAuth connection on the bot in one Token Service
+    # call. The bulk call can lag a fresh sign-in or omit a connection, so a
+    # registered flow reported missing or without a token is re-checked with
+    # a direct lookup, like the Python SDK.
+    def get_connection_status
+      statuses = api.users.get_token_status(user_id: activity.from.id, channel_id: activity.channel_id)
+      registered = app.oauth_registry.each_with_object({}) do |flow, names|
+        names[OAuth.lookup_key(flow.connection_name)] = flow.connection_name
+      end
+      return statuses if registered.empty?
+
+      resolved = Set.new
+      corrected = statuses.map do |status|
+        key = OAuth.lookup_key(status.connection_name)
+        resolved << key if key
+        next status if key.nil? || !registered.key?(key) || status.has_token
+
+        get_user_token(connection_name: registered[key]) ? Api::TokenStatus.new(status.to_h.merge("hasToken" => true)) : status
+      end
+
+      registered.each do |key, name|
+        next if resolved.include?(key)
+
+        corrected << Api::TokenStatus.new(
+          "channelId" => activity.channel_id,
+          "connectionName" => name,
+          "hasToken" => !get_user_token(connection_name: name).nil?,
+          "serviceProviderDisplayName" => ""
+        )
+      end
+      corrected
     end
 
     # Clears the user's token for the connection. Failures are logged, not
@@ -162,6 +235,36 @@ module Teams
     end
 
     private
+
+    # Records which connection the sign-in started on, so the connection-less
+    # verify-state and failure callbacks can be routed to its flow, then sends
+    # the card. With state the record is saved right away; if the card cannot
+    # be sent, the previous records are restored so they cannot mis-route a
+    # later callback.
+    def send_sign_in_card(payload, connection_name, sso_offered:)
+      cache = app.oauth_pending_cache
+      scope = { conversation_id: activity.conversation&.id, user_id: activity.from&.id }
+      previous = OAuth::PendingSignIns.list(state, cache, **scope)
+      begin
+        OAuth::PendingSignIns.record(state, cache, connection_name, sso_offered:, **scope)
+        state&.save
+        app.send_activity(conversation_reference, payload, api:)
+      rescue StandardError
+        begin
+          OAuth::PendingSignIns.replace(state, cache, previous, **scope)
+          if state
+            state.user&.mark_dirty
+            state.save
+          end
+        rescue StandardError => rollback_error
+          log&.warn(
+            "Failed to roll back pending OAuth sign-in state for connection '#{connection_name}': " \
+            "#{rollback_error.message}"
+          )
+        end
+        raise
+      end
+    end
 
     def incoming_targeted_sender
       return nil unless activity.message?

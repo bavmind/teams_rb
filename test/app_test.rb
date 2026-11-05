@@ -25,14 +25,14 @@ class AppTest < Minitest::Test
       ctx.reply "echo: #{ctx.activity.text}"
     end
 
-    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+    post "/api/messages", JSON.generate(teams_payload.merge("id" => "1772129782775")), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
     assert_equal "conversation-1", @api.sent.first[0]
     refute @api.sent.first[1].key?("replyToId")
-    assert_equal %(<quoted messageId="activity-1"/> echo: hello), @api.sent.first[1]["text"]
+    assert_equal %(<quoted messageId="1772129782775"/> echo: hello), @api.sent.first[1]["text"]
     assert_equal(
-      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "activity-1" } }],
+      [{ "type" => "quotedReply", "quotedReply" => { "messageId" => "1772129782775" } }],
       @api.sent.first[1]["entities"]
     )
     assert_equal({ "id" => "bot-1", "name" => "Bot" }, @api.sent.first[1]["from"])
@@ -40,6 +40,20 @@ class AppTest < Minitest::Test
     refute @api.sent.first[1].key?("channelId")
     assert_equal({ "id" => "conversation-1" }, @api.sent.first[1]["conversation"])
     assert_equal "https://smba.trafficmanager.net/teams", @api.sent.first[2]
+  end
+
+  def test_reply_sends_without_quote_when_inbound_id_is_not_a_message_id
+    @teams.on_message { |ctx| ctx.reply "done" }
+
+    ["f:6b3a1c2e-0000-4000-8000-000000000001", "000", "activity-1"].each do |id|
+      post "/api/messages", JSON.generate(teams_payload.merge("id" => id)), { "CONTENT_TYPE" => "application/json" }
+    end
+
+    assert_equal 3, @api.sent.size
+    @api.sent.each do |_conversation_id, outbound|
+      assert_equal "done", outbound["text"]
+      assert_nil outbound["entities"]
+    end
   end
 
   def test_message_pattern_routes
@@ -504,6 +518,52 @@ class AppTest < Minitest::Test
     assert_equal "Hello", final["text"]
   end
 
+  def test_stream_chunks_carry_text_format_of_emitted_message
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.update "Planning...", text_format: "plain"
+      ctx.stream.emit Teams::Api::MessageActivity.new("- [x] done", text_format: "extendedmarkdown")
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    informative, chunk, final = @api.sent.map { |entry| entry[1] }
+    assert_equal "plain", informative["textFormat"]
+    assert_equal "extendedmarkdown", chunk["textFormat"]
+    assert_equal "extendedmarkdown", final["textFormat"]
+  end
+
+  def test_stream_final_message_keeps_sensitivity_label
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.emit "Streaming content..."
+      ctx.stream.emit Teams::Api::MessageActivity.new.add_sensitivity_label(
+        Teams::Api::SensitivityUsageInfo.new(at_id: "label-id")
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    final = @api.sent.last[1]
+    roots = final["entities"].select { |entity| entity["type"] == "https://schema.org/Message" }
+    assert_equal 1, roots.length
+    assert_equal({ "@type" => "CreativeWork", "@id" => "label-id" }, roots.first["usageInfo"])
+  end
+
+  def test_stream_chunks_omit_text_format_when_unset
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.update "Thinking..."
+      ctx.stream.emit "Hello"
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    informative, chunk, = @api.sent.map { |entry| entry[1] }
+    refute informative.key?("textFormat")
+    refute chunk.key?("textFormat")
+  end
+
   def test_stream_update_without_message_does_not_send_final_message
     @teams.on_message do |ctx|
       fast_stream(ctx.stream)
@@ -628,7 +688,7 @@ class AppTest < Minitest::Test
   # the mapping surfaces through close's final send, like TypeScript/Python.
   def test_stream_maps_403_error_messages_to_typed_errors
     {
-      "Content stream was canceled by user." => Teams::StreamCancelledError,
+      "Content stream was canceled by user." => Teams::TerminalStreamError,
       "Content stream is not allowed" => Teams::StreamNotAllowedError,
       "Content stream is not allowed on an already completed streamed message" => Teams::TerminalStreamError,
       "Message size too large" => Teams::TerminalStreamError,
@@ -655,31 +715,30 @@ class AppTest < Minitest::Test
     assert_instance_of Teams::TerminalStreamError, error
   end
 
-  def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
+  def test_stream_not_allowed_does_not_mark_timed_out
     api = FakeApi.new
     api.send_filter = ->(payload) { raise stream_http_error("Content stream is not allowed") if payload["type"] == "message" }
     stream = build_stream(api)
 
     stream.emit "hi"
     assert_raises(Teams::StreamNotAllowedError) { stream.close }
-    refute stream.canceled
     refute stream.timed_out
   end
 
-  def test_stream_cancel_is_sticky_and_close_returns_nil
+  def test_stream_cancel_error_no_longer_stops_the_stream
     api = FakeApi.new
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
     stream = build_stream(api)
 
-    # The cancelling 403 lands on the flusher thread and is swallowed there;
-    # the sticky flag is the observable, like TypeScript/Python.
+    # The 403 lands on the flusher thread and is logged there; it no longer
+    # marks the stream canceled, so later emits keep working.
     stream.emit "hi"
-    wait_until { stream.canceled }
-    assert_nil stream.close
-
+    wait_until { stream.count.zero? }
     api.send_filter = nil
-    error = assert_raises(Teams::StreamCancelledError) { stream.emit "again" }
-    assert_equal "Stream has been cancelled.", error.message
+    stream.emit "again"
+
+    assert_equal "message", stream.close.type
+    refute stream.canceled
   end
 
   def test_stream_chunk_timeout_is_swallowed_and_close_updates_in_place
@@ -864,8 +923,9 @@ class AppTest < Minitest::Test
   end
 
   def test_targeted_update_routes_to_targeted_update
+    sent = nil
     @teams.on_message do |ctx|
-      ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
+      sent = ctx.post Teams::Api::MessageActivity.new("Updated", id: "existing-1").with_recipient(
         { "id" => "user-1" }, is_targeted: true
       )
     end
@@ -876,22 +936,22 @@ class AppTest < Minitest::Test
     assert_empty @api.updates
     assert_equal 1, @api.targeted_updates.size
     assert_equal "existing-1", @api.targeted_updates.first[1]
+    refute @api.targeted_updates.first[2].key?("recipient")
+    assert_equal true, sent["recipient"]["isTargeted"]
   end
 
-  def test_targeted_send_in_personal_chat_raises
+  def test_targeted_send_in_personal_chat_uses_targeted_route
     payload = teams_payload
     payload["conversation"] = payload["conversation"].merge("conversationType" => "personal")
     reference = Teams::Api::ConversationReference.from_activity(Teams::Activity.new(payload))
 
-    error = assert_raises(ArgumentError) do
-      @teams.send_activity(
-        reference,
-        Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
-      )
-    end
+    @teams.send_activity(
+      reference,
+      Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
+    )
 
-    assert_equal "Targeted messages are not supported in 1:1 (personal) chats.", error.message
-    assert_empty @api.targeted_sent
+    assert_equal 1, @api.targeted_sent.size
+    assert_empty @api.sent
   end
 
   def test_stream_chunk_and_close_events
@@ -1270,7 +1330,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_completes_sso_and_fires_sign_in
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
+    @teams.on_oauth_sign_in { |ctx, token| events << [ctx.activity.name, token.token] }
 
     payload = message_ext_payload("signin/tokenExchange",
       "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
@@ -1279,6 +1339,24 @@ class AppTest < Minitest::Test
     assert last_response.ok?
     assert_equal [["signin/tokenExchange", "sso-user-token"]], events
     assert_equal "exchangeable", @api.users.exchanges.first[:exchange_request]["token"]
+  end
+
+  def test_deprecated_on_sign_in_still_registers_the_sign_in_event
+    @api.users.token = "sso-user-token"
+    events = []
+    _out, err = capture_io do
+      Warning[:deprecated], previous = true, Warning[:deprecated]
+      @teams.on_sign_in { |_ctx, token| events << token.token }
+    ensure
+      Warning[:deprecated] = previous
+    end
+    assert_match(/App#on_sign_in is deprecated; use App#on_oauth_sign_in/, err)
+
+    payload = message_ext_payload("signin/tokenExchange",
+      "id" => "exchange-1", "connectionName" => "graph", "token" => "exchangeable")
+    post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
+
+    assert_equal ["sso-user-token"], events
   end
 
   def test_default_token_exchange_returns_412_when_exchange_fails
@@ -1297,7 +1375,7 @@ class AppTest < Minitest::Test
     @api.users.token = "sso-user-token"
     events = []
     user_handler_runs = 0
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
     @teams.on_signin_token_exchange { |_ctx| user_handler_runs += 1; nil }
 
     payload = message_ext_payload("signin/tokenExchange",
@@ -1314,7 +1392,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_dedupes_per_exchange_id
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     %w[exchange-1 exchange-2].each do |id|
       payload = message_ext_payload("signin/tokenExchange",
@@ -1334,7 +1412,7 @@ class AppTest < Minitest::Test
 
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
     post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }
 
     assert last_response.ok?
@@ -1345,7 +1423,7 @@ class AppTest < Minitest::Test
   def test_default_token_exchange_without_id_is_not_deduped
     @api.users.token = "sso-user-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     payload = message_ext_payload("signin/tokenExchange",
       "connectionName" => "graph", "token" => "exchangeable")
@@ -1359,7 +1437,7 @@ class AppTest < Minitest::Test
   def test_default_verify_state_completes_sign_in
     @api.users.token = "interactive-token"
     events = []
-    @teams.on_sign_in { |_ctx, token| events << token.token }
+    @teams.on_oauth_sign_in { |_ctx, token| events << token.token }
 
     payload = message_ext_payload("signin/verifyState", "state" => "123456")
     post "/api/messages", JSON.generate(payload), { "CONTENT_TYPE" => "application/json" }

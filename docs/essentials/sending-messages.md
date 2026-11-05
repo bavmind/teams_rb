@@ -9,7 +9,7 @@ ctx.quote "message-id", "a reply quoting a specific message"
 ctx.update "activity-id", "replaces a previous bot message"
 ```
 
-`post` is Ruby's spelling of the SDKs' `send` (Ruby reserves `Object#send`), with identical semantics — including: an activity that already carries an `id` is **updated** instead of created. `ctx.update` is sugar over exactly that. `reply` adds the Teams quoted-reply entity and placeholder, matching the other SDKs.
+`post` is Ruby's spelling of the SDKs' `send` (Ruby reserves `Object#send`), with identical semantics — including: an activity that already carries an `id` is **updated** instead of created. `ctx.update` is sugar over exactly that. `reply` adds the Teams quoted-reply entity and placeholder, matching the other SDKs — but only when the inbound id is a plain numeric message id (typed messages, edits, deletes, reactions). Invokes and card-button messages carry ids like `f:<guid>` that cannot be quoted, so there `reply` sends exactly like `post`; use `ctx.quote(message_id, ...)` to quote a specific message.
 
 All sends accept a String, a `Teams::Api::MessageActivity`, an Adaptive Card, or a raw activity Hash (symbol or string keys — they're normalized).
 
@@ -32,13 +32,16 @@ ctx.update sent.id, "Done!"
 ```ruby
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 # text_format: plain | markdown | xml | extendedmarkdown
-# ("extendedmarkdown" is in public preview and may be subject to change)
+
+label = Teams::Api::SensitivityUsageInfo.new(at_id: purview_label_id, name: "Confidential")
 
 ctx.post Teams::Api::MessageActivity.new("Quarterly numbers")
   .add_ai_generated                                          # "AI generated" badge
-  .add_sensitivity_label("Confidential", description: "Internal only")
+  .add_sensitivity_label(label)                              # Purview sensitivity label shield
   .add_feedback                                              # thumbs up/down feedback buttons
 ```
+
+Sensitivity labels are identified by their Microsoft Purview label id (`at_id`); Teams resolves the label's display name and description from it, using `name` only as a fallback. A citation can carry its own label through `usage_info:`. The older `add_sensitivity_label("Confidential", description: ...)` name-only form still works but is deprecated.
 
 Mentions:
 
@@ -70,7 +73,7 @@ ctx.typing               # animated ellipsis in the chat
 
 ## Targeted messages
 
-When the inbound message targets the bot (`recipient.isTargeted`), `ctx.post` and `ctx.reply` automatically answer as targeted messages visible only to that user, matching TypeScript/Python — including the `targetedMessageInfo` entity and the targeted API routes. Targeted messages aren't supported in 1:1 chats (the SDK raises).
+When the inbound message targets the bot (`recipient.isTargeted`), `ctx.post` and `ctx.reply` automatically answer as targeted messages visible only to that user, matching TypeScript/Python — including the `targetedMessageInfo` entity and the targeted API routes.
 
 ## Delivery semantics
 

@@ -26,12 +26,12 @@ teams.on_message(/^login$/i) do |ctx|
   ctx.reply "Already signed in!" if token   # nil means a card was sent
 end
 
-teams.on_sign_in do |ctx, token_response|
+teams.on_oauth_sign_in do |ctx, token_response|
   ctx.post "Welcome! You're signed in."
 end
 ```
 
-`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card and returns `nil`. In group chats and channels the card is delivered in the conversation as a targeted message only the requesting user sees; in channels the card always uses the sign-in button (silent SSO is not supported in channel scope). The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_sign_in`. You don't handle the invokes yourself.
+`ctx.sign_in` returns the token when the user is already signed in; otherwise it sends an OAuth card and returns `nil`. In group chats and channels the card is delivered in the conversation as a targeted message only the requesting user sees; in channels the card always uses the sign-in button (silent SSO is not supported in channel scope). The SDK's **default handlers** then complete the sign-in invokes automatically — both the interactive card path (`signin/verifyState`) and silent SSO (`signin/tokenExchange`) — and fire `on_oauth_sign_in`. You don't handle the invokes yourself.
 
 `ctx.sign_out` clears the stored token.
 
@@ -40,20 +40,48 @@ end
 Most often through the [user Graph client](../essentials/graph.md):
 
 ```ruby
-teams.on_sign_in do |ctx, _token|
+teams.on_oauth_sign_in do |ctx, _token|
   me = ctx.user_graph.get("/me")
   ctx.post "Hello #{me["displayName"]}"
 end
 ```
 
-Or the raw token from the token service:
+Or the raw token: `ctx.get_user_token(connection_name: "graph")` returns it, or `nil` when the user is not signed in. Only the token service's 404 means "not signed in" — any other failure raises, so an outage is never mistaken for a signed-out user (the same applies to `ctx.sign_in`). `ctx.get_connection_status` returns the token status of every OAuth connection on the bot in one call.
+
+## Multiple connections
+
+Register each OAuth connection as a named flow, then sign in, read tokens, and react to completions per connection:
 
 ```ruby
-response = ctx.api.users.get_token(
-  user_id: ctx.activity.from.id, connection_name: "graph", channel_id: ctx.activity.channel_id
-)
-response.token   # the delegated access token
+github = teams.add_oauth_flow("github", oauth_card_text: "Sign in with GitHub")
+graph = teams.add_oauth_flow("graph")
+
+teams.on_message("/github") { |ctx| github.sign_in(ctx) }
+teams.on_message("/logout") { |ctx| github.sign_out(ctx) }
+
+github.on_sign_in do |event|
+  event.context.post "Signed in to GitHub (#{event.connection_name})"
+end
+github.on_sign_in_failure do |event|
+  event.context.log.warn("GitHub sign-in failed: #{event.code} #{event.message}")
+end
+
+teams.get_oauth_flow("GITHUB")   # case-insensitive lookup; raises when not registered
+github.get_token(ctx)            # token or nil
+github.signed_in?(ctx)
 ```
+
+`flow.sign_in` always uses the flow's own connection; its card text defaults to the flow's and can be overridden per call. Flow handlers run in registration order and are isolated: one that raises is logged and the rest still run. The app-level `on_oauth_sign_in` still fires for every connection, and `teams.on_oauth_sign_in_failure { |event| ... }` receives each `signin/failure` callback once as a `Teams::OAuth::SignInFailureEvent` (`context`, `connection_name`, `code`, `message`).
+
+### How callbacks find their flow
+
+- **Silent SSO** (`signin/tokenExchange`) names its connection, so it always reaches the right flow.
+- **The card's sign-in button** (`signin/verifyState`) carries only a one-time code. The SDK tries the connections in order — the ones with a pending sign-in for this user (newest first), the remaining registered flows, then `default_connection_name` — until one accepts the code; none accepting answers 404.
+- **`signin/failure`** carries no connection either. It is attributed to the newest pending sign-in that offered silent SSO; if none can be found, `on_oauth_sign_in_failure` reports `connection_name` `nil` and every registered flow's failure handlers are notified, each with its own connection name.
+
+`flow.sign_in` / `ctx.sign_in` record the pending sign-in in [per-turn state](state.md), which registering a flow turns on when you didn't set `state:`. With `state: false`, pending sign-ins live in a short-lived in-process cache, so a callback handled by another instance cannot be attributed — use shared state storage when running several instances.
+
+Teams delivers one silent-SSO exchange to every client the user is signed in on; the SDK runs it once. Duplicates answer 200 without firing the sign-in events again, both on the same instance and — through conversation state — across instances.
 
 ## Custom invoke handling
 

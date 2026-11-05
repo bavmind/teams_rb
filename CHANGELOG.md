@@ -6,6 +6,43 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-05
+
+### Added
+
+- `ctx.stream.update(text, text_format:)` sets the text format of an informative update, matching the TypeScript, Python, and .NET SDKs
+- Receiving files: `ctx.files` lists the inbound activity's uploaded files (`list`/`first`) as lazy `Files::IncomingFile` handles with `download` (a `Files::DownloadedFile` snapshot), `text`, `save_as`, and `stream`; downloads are plain GETs with no bot token, following redirects only over HTTPS. Typed `Teams::FileError` subclasses: `FileUrlExpiredError` (`reason` `first_fetch`/`reread`) and `FileScopeNotSupportedError`. Adds `Api::FileDownloadInfo` and `Api::FILE_DOWNLOAD_INFO_CONTENT_TYPE`. Matches the TypeScript, Python, and .NET SDKs
+- Agentic users receive files in personal chats, group chats, and channels: files that arrive with only a `content_url` are read through Microsoft Graph `/shares` with the agent's own token (never the app's), with `FileCredentialError` (no usable Graph credential, detected before the request; `actor`, `cause_detail`) and `FileAccessError` (refused by storage; `status`, `actor`, `details`). Matches the TypeScript, Python, and .NET SDKs
+- Pasted inline images are listed by `ctx.files` with `attachment_style` `"inlineImage"` (named from the message's HTML format hint; downloads report the format the bytes actually are), read from the Bot API with the turn's token and only under the activity's service URL; `list`/`first` accept `attachment_style:` to filter. Adds `InlineImageTransformationError` (415) and `InlineImageAccessError` (401/403). Matches the TypeScript, Python, and .NET SDKs
+- Per-turn state (opt-in `state:` App option, `true` or `State::StateOptions`): `ctx.state.conversation` and `ctx.state.user` are Hash-like `State::TurnState` scopes loaded before the handlers and saved after the turn (also when a handler raised) only when their content changed, including nested changes; emptied scopes are deleted, `ctx.state.delete` removes both, and the state is sealed after the turn (`State::TurnStateSealedError`). Stored as JSON under percent-encoded `{prefix}:conv:{conversationId}` / `{prefix}:user:{conversationId}:{userId}` keys in the app's storage or a dedicated one. Matches the TypeScript, Python, and .NET SDKs
+- Multiple OAuth connections: `app.add_oauth_flow(name, oauth_card_text:, sign_in_button_text:)` registers an `OAuth::Flow` (case-insensitive, unique names; `app.get_oauth_flow` looks one up) with connection-bound `sign_in`, `sign_out`, `get_token`, `signed_in?`, and per-flow `on_sign_in`/`on_sign_in_failure` handlers; `app.on_oauth_sign_in_failure` receives an `OAuth::SignInFailureEvent`; `ctx.get_user_token(connection_name:)` and `ctx.get_connection_status`. Registering a flow enables per-turn state unless `state:` was set. Matches the TypeScript, Python, and .NET SDKs
+- OAuth callbacks route to their registered flow: `ctx.sign_in` records the pending sign-in (in per-turn state, or a bounded process-local cache when state is off), token exchanges reach the flow they name, `signin/verifyState` probes pending flows, then registered flows, then the default connection, and `signin/failure` is attributed to the pending silent-SSO sign-in (or reported to every flow with `connection_name` `nil` when it cannot be). Terminal Token Service errors notify the flow's failure handlers (`code` `tokenservice.http_<status>`). Matches the TypeScript, Python, and .NET SDKs
+- Microsoft Purview sensitivity labels: `Api::SensitivityUsageInfo` (`at_id` label id sent as `@id`, optional `name`/`description`/`position`, `at_type` defaulting to `CreativeWork`), `add_sensitivity_label(label)` writing it to the root message entity (replacing any earlier label), and citation `usage_info:` accepting it (citation usage info now defaults `@type` to `CreativeWork`). Matches the TypeScript, Python, and .NET SDKs
+
+### Changed
+
+- Targeted sends are no longer rejected by the SDK in 1:1 (personal) conversations; the Teams service decides whether a targeted message is valid (a plain 1:1 bot chat answers 400 `BadArgument`), matching the same change in the TypeScript, Python, and .NET SDKs
+- Teams no longer supports stopping a stream, so stream cancellation handling is removed: a 403 mentioning cancellation is a `TerminalStreamError` like any other terminal stream failure, emits after it keep working, and the streaming time limit is documented as ten minutes. Matches the TypeScript, Python, and .NET SDKs
+- `signin/verifyState` answers 404 (instead of 412) when no connection accepts the code, and token-exchange deduplication now also holds across instances through conversation state, expires completed exchanges after five minutes, and answers an in-flight duplicate with 412 when the original exchange raised. Matches the TypeScript and Python SDKs
+- `ctx.sign_in` falls through to the OAuth card only when the Token Service answers 404 (no token); other Token Service failures now raise instead of being treated as a signed-out user, matching the Python SDK
+- Adaptive Card classes no longer serialize schema defaults for optional fields the caller never set (for example `theme`, `fillMode`, `horizontalAlignment`, `requires`), which roughly tripled payload size; `version` keeps its `1.5` default and explicitly set values, including `false`, still serialize. Regenerated from the same generator change in the TypeScript, Python, and .NET SDKs
+
+### Deprecated
+
+- `app.on_sign_in` is renamed `app.on_oauth_sign_in` (same block arguments): app-level OAuth events now carry the `on_oauth_` prefix, like `app.on_oauth_sign_in_failure`, which keeps them apart from the `on_signin_*` invoke routes. The old name still works and emits a deprecation warning.
+- `HttpStream#canceled` always returns false, and `Teams::StreamCancelledError` is never raised
+- `add_sensitivity_label(name, description:, pattern:)` with a label name string; it writes a name-only label without the Purview label id. Pass an `Api::SensitivityUsageInfo` instead
+
+### Fixed
+
+- `ctx.reply` quotes the inbound message only when its id is a plain numeric message id (digits, not all zeros). Invokes, card-button messages, and feedback carry service-generated ids such as `f:<guid>` that the service rejects as quote targets with 400, so `ctx.reply` failed in card, dialog, and feedback handlers; it now sends without a quote there, exactly like `ctx.post`. Matches the same fix in the TypeScript, Python, and .NET SDKs
+- Streamed text chunks carry the `textFormat` of the last emitted message, so streamed extended markdown (task lists, strikethrough) no longer renders as plain markdown until the message closes. Matches the same fix in the TypeScript, Python, and .NET SDKs
+- Targeted message updates no longer send `recipient` in the payload (the recipient of an existing targeted message cannot change; it only selects the targeted endpoint); the returned `SentActivity` still carries it. Matches the TypeScript and Python SDKs
+
+### Security
+
+- Entra-authenticated inbound activities are accepted only when the token was requested by the Agent 365 platform app: the caller app is read from `azp`, or from `appid` when `azp` is absent, and compared case-insensitively; tokens requested by any other client app are rejected with 401. Bot Framework tokens are unaffected. Matches the same fix in the TypeScript, Python, and .NET SDKs
+
 ## [2.0.3] - 2026-11-05
 
 ### Added
@@ -87,7 +124,8 @@ the Python SDK made when it joined the family.
 - Thread-safe token management, storage, and JWKS caching for multi-threaded Rack servers
 - Documentation mirroring the official teams-sdk docs structure (getting started, essentials, in-depth guides)
 
-[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/bavmind/teams_rb/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/bavmind/teams_rb/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/bavmind/teams_rb/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bavmind/teams_rb/compare/v2.0.0...v2.0.1
