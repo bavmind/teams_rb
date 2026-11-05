@@ -362,11 +362,6 @@ module Teams
     def send_activity(conversation_reference, activity_or_text, api: self.api)
       activity = activity_for_reference(conversation_reference, activity_or_text)
       targeted = targeted_activity?(activity)
-
-      if targeted && conversation_reference.conversation.conversation_type == "personal"
-        raise ArgumentError, "Targeted messages are not supported in 1:1 (personal) chats."
-      end
-
       id = activity_id(activity)
       conversation_id = conversation_reference.conversation_id
       service_url = conversation_reference.service_url

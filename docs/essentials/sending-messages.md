@@ -70,7 +70,7 @@ ctx.typing               # animated ellipsis in the chat
 
 ## Targeted messages
 
-When the inbound message targets the bot (`recipient.isTargeted`), `ctx.post` and `ctx.reply` automatically answer as targeted messages visible only to that user, matching TypeScript/Python — including the `targetedMessageInfo` entity and the targeted API routes. Targeted messages aren't supported in 1:1 chats (the SDK raises).
+When the inbound message targets the bot (`recipient.isTargeted`), `ctx.post` and `ctx.reply` automatically answer as targeted messages visible only to that user, matching TypeScript/Python — including the `targetedMessageInfo` entity and the targeted API routes.
 
 ## Delivery semantics
 

@@ -878,20 +878,18 @@ class AppTest < Minitest::Test
     assert_equal "existing-1", @api.targeted_updates.first[1]
   end
 
-  def test_targeted_send_in_personal_chat_raises
+  def test_targeted_send_in_personal_chat_uses_targeted_route
     payload = teams_payload
     payload["conversation"] = payload["conversation"].merge("conversationType" => "personal")
     reference = Teams::Api::ConversationReference.from_activity(Teams::Activity.new(payload))
 
-    error = assert_raises(ArgumentError) do
-      @teams.send_activity(
-        reference,
-        Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
-      )
-    end
+    @teams.send_activity(
+      reference,
+      Teams::Api::MessageActivity.new("Secret").with_recipient({ "id" => "user-1" }, is_targeted: true)
+    )
 
-    assert_equal "Targeted messages are not supported in 1:1 (personal) chats.", error.message
-    assert_empty @api.targeted_sent
+    assert_equal 1, @api.targeted_sent.size
+    assert_empty @api.sent
   end
 
   def test_stream_chunk_and_close_events
