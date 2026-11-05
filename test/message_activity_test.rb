@@ -329,6 +329,84 @@ class MessageActivityTest < Minitest::Test
     assert_equal "<at>buddy</at>", body["entities"].first["text"]
   end
 
+  def test_add_sensitivity_label_sets_purview_label_on_root_message_entity
+    activity = Teams::Api::MessageActivity.new("classified")
+      .add_sensitivity_label(Teams::Api::SensitivityUsageInfo.new(at_id: "label-id"))
+
+    assert_equal(
+      [{
+        "type" => "https://schema.org/Message",
+        "@type" => "Message",
+        "@context" => "https://schema.org",
+        "usageInfo" => { "@type" => "CreativeWork", "@id" => "label-id" }
+      }],
+      activity.to_h["entities"]
+    )
+  end
+
+  def test_add_sensitivity_label_includes_optional_fields_and_replaces_earlier_label
+    activity = Teams::Api::MessageActivity.new
+      .add_sensitivity_label(Teams::Api::SensitivityUsageInfo.new(at_id: "first", name: "First"))
+      .add_sensitivity_label(
+        Teams::Api::SensitivityUsageInfo.new(at_id: "second", name: "Confidential", description: "Internal only", position: 2)
+      )
+
+    entities = activity.to_h["entities"]
+    assert_equal 1, entities.length
+    assert_equal(
+      { "@type" => "CreativeWork", "@id" => "second", "name" => "Confidential", "description" => "Internal only", "position" => 2 },
+      entities.first["usageInfo"]
+    )
+  end
+
+  def test_add_sensitivity_label_keeps_single_root_entity_with_ai_label_and_citation
+    label = Teams::Api::SensitivityUsageInfo.new(at_id: "label-id")
+    citation = Teams::Api::CitationAppearance.new(name: "doc", abstract: "abstract")
+    [
+      ->(a) { a.add_sensitivity_label(label).add_ai_generated.add_citation(1, citation) },
+      ->(a) { a.add_citation(1, citation).add_ai_generated.add_sensitivity_label(label) }
+    ].each do |build|
+      entities = build.call(Teams::Api::MessageActivity.new("text [1]")).to_h["entities"]
+
+      assert_equal 1, entities.length
+      assert_equal({ "@type" => "CreativeWork", "@id" => "label-id" }, entities.first["usageInfo"])
+      assert_equal ["AIGeneratedContent"], entities.first["additionalType"]
+      assert_equal 1, entities.first["citation"].length
+    end
+  end
+
+  def test_add_sensitivity_label_accepts_hash_and_custom_type
+    activity = Teams::Api::MessageActivity.new.add_sensitivity_label({ "@type": "CustomType", "@id": "label-id" })
+
+    assert_equal({ "@type" => "CustomType", "@id" => "label-id" }, activity.to_h["entities"].first["usageInfo"])
+  end
+
+  def test_add_sensitivity_label_rejects_legacy_options_with_label_object
+    assert_raises(ArgumentError) do
+      Teams::Api::MessageActivity.new.add_sensitivity_label(
+        Teams::Api::SensitivityUsageInfo.new(at_id: "label-id"), description: "x"
+      )
+    end
+    assert_raises(ArgumentError) { Teams::Api::SensitivityUsageInfo.new(at_id: nil) }
+  end
+
+  def test_citation_usage_info_accepts_sensitivity_label
+    activity = Teams::Api::MessageActivity.new("text [1] [2]")
+      .add_citation(1, Teams::Api::CitationAppearance.new(
+        name: "Quarterly report", abstract: "Revenue",
+        usage_info: Teams::Api::SensitivityUsageInfo.new(at_id: "label-id", name: "Confidential")
+      ))
+      .add_citation(2, Teams::Api::CitationAppearance.new(name: "Notes", abstract: "Draft", usage_info: { "name" => "General" }))
+
+    citations = activity.to_h["entities"].first["citation"]
+    assert_equal(
+      { "@type" => "CreativeWork", "@id" => "label-id", "name" => "Confidential" },
+      citations[0].dig("appearance", "usageInfo")
+    )
+    assert_equal({ "@type" => "CreativeWork", "name" => "General" }, citations[1].dig("appearance", "usageInfo"))
+  end
+
+  # Deprecated label-name form: unchanged wire output for existing callers.
   def test_add_sensitivity_label_sets_usage_info_on_root_message_entity
     activity = Teams::Api::MessageActivity.new("classified")
       .add_ai_generated

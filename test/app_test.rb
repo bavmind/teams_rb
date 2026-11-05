@@ -533,6 +533,23 @@ class AppTest < Minitest::Test
     assert_equal "extendedmarkdown", final["textFormat"]
   end
 
+  def test_stream_final_message_keeps_sensitivity_label
+    @teams.on_message do |ctx|
+      fast_stream(ctx.stream)
+      ctx.stream.emit "Streaming content..."
+      ctx.stream.emit Teams::Api::MessageActivity.new.add_sensitivity_label(
+        Teams::Api::SensitivityUsageInfo.new(at_id: "label-id")
+      )
+    end
+
+    post "/api/messages", JSON.generate(teams_payload), { "CONTENT_TYPE" => "application/json" }
+
+    final = @api.sent.last[1]
+    roots = final["entities"].select { |entity| entity["type"] == "https://schema.org/Message" }
+    assert_equal 1, roots.length
+    assert_equal({ "@type" => "CreativeWork", "@id" => "label-id" }, roots.first["usageInfo"])
+  end
+
   def test_stream_chunks_omit_text_format_when_unset
     @teams.on_message do |ctx|
       fast_stream(ctx.stream)

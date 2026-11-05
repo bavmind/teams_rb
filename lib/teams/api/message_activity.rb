@@ -107,17 +107,25 @@ module Teams
         self
       end
 
-      # Adds a content sensitivity label. The label is carried as usageInfo on
-      # the root schema.org/Message entity, the wire shape TypeScript, Python,
-      # and the Teams documentation use.
-      def add_sensitivity_label(name, description: nil, pattern: nil)
-        usage_info = {
-          "type" => AI_MESSAGE_ENTITY_TYPE,
-          "@type" => "CreativeWork",
-          "name" => name
-        }
-        usage_info["description"] = description if description
-        usage_info["pattern"] = pattern if pattern
+      # Adds a Microsoft Purview sensitivity label (an Api::SensitivityUsageInfo,
+      # or a hash in its wire shape) as usageInfo on the root message entity,
+      # replacing any earlier label, like the TypeScript, Python, and .NET SDKs.
+      #
+      # Deprecated: passing a label name string (with optional description: and
+      # pattern:) writes the name-only label teams_rb used before the SDKs
+      # defined the Purview label contract; it carries no label id.
+      def add_sensitivity_label(label, description: nil, pattern: nil)
+        usage_info = if label.is_a?(String)
+          warn("add_sensitivity_label(name) is deprecated; pass a Teams::Api::SensitivityUsageInfo with the Purview label id.",
+            uplevel: 1, category: :deprecated)
+          legacy_sensitivity_usage_info(label, description, pattern)
+        else
+          unless description.nil? && pattern.nil?
+            raise ArgumentError, "description: and pattern: apply only to the deprecated label-name form"
+          end
+
+          sensitivity_usage_info(label)
+        end
 
         ensure_single_root_level_message_entity["usageInfo"] = usage_info
         self
@@ -155,6 +163,24 @@ module Teams
       end
 
       private
+
+      def sensitivity_usage_info(label)
+        body = label.respond_to?(:to_h) ? label.to_h : label
+        raise ArgumentError, "sensitivity label must be a Teams::Api::SensitivityUsageInfo or a hash" unless body.is_a?(Hash)
+
+        { "@type" => "CreativeWork" }.merge(Common::Hashes.deep_stringify_keys(body).compact)
+      end
+
+      def legacy_sensitivity_usage_info(name, description, pattern)
+        usage_info = {
+          "type" => AI_MESSAGE_ENTITY_TYPE,
+          "@type" => "CreativeWork",
+          "name" => name
+        }
+        usage_info["description"] = description if description
+        usage_info["pattern"] = pattern if pattern
+        usage_info
+      end
 
       def quoted_reply_entity?(entity)
         entity_type(entity) == "quotedReply"

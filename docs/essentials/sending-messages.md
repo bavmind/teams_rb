@@ -33,11 +33,15 @@ ctx.update sent.id, "Done!"
 ctx.post Teams::Api::MessageActivity.new("**markdown**", text_format: "markdown")
 # text_format: plain | markdown | xml | extendedmarkdown
 
+label = Teams::Api::SensitivityUsageInfo.new(at_id: purview_label_id, name: "Confidential")
+
 ctx.post Teams::Api::MessageActivity.new("Quarterly numbers")
   .add_ai_generated                                          # "AI generated" badge
-  .add_sensitivity_label("Confidential", description: "Internal only")
+  .add_sensitivity_label(label)                              # Purview sensitivity label shield
   .add_feedback                                              # thumbs up/down feedback buttons
 ```
+
+Sensitivity labels are identified by their Microsoft Purview label id (`at_id`); Teams resolves the label's display name and description from it, using `name` only as a fallback. A citation can carry its own label through `usage_info:`. The older `add_sensitivity_label("Confidential", description: ...)` name-only form still works but is deprecated.
 
 Mentions:
 

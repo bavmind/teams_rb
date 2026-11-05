@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file. The format foll
 ### Added
 
 - `ctx.stream.update(text, text_format:)` sets the text format of an informative update, matching the TypeScript, Python, and .NET SDKs
+- Microsoft Purview sensitivity labels: `Api::SensitivityUsageInfo` (`at_id` label id sent as `@id`, optional `name`/`description`/`position`, `at_type` defaulting to `CreativeWork`), `add_sensitivity_label(label)` writing it to the root message entity (replacing any earlier label), and citation `usage_info:` accepting it (citation usage info now defaults `@type` to `CreativeWork`). Matches the TypeScript, Python, and .NET SDKs
 
 ### Changed
 
@@ -19,6 +20,7 @@ All notable changes to this project are documented in this file. The format foll
 ### Deprecated
 
 - `HttpStream#canceled` always returns false, and `Teams::StreamCancelledError` is never raised
+- `add_sensitivity_label(name, description:, pattern:)` with a label name string; it writes a name-only label without the Purview label id. Pass an `Api::SensitivityUsageInfo` instead
 
 ### Fixed
 

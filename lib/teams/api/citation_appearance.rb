@@ -61,12 +61,20 @@ module Teams
         body["encodingFormat"] = ADAPTIVE_CARD_CONTENT_TYPE if text && !text.empty?
         body["image"] = { "@type" => "ImageObject", "name" => icon } if icon
         body["keywords"] = keywords if keywords
-        body["usageInfo"] = usage_info.to_h if usage_info && usage_info.respond_to?(:to_h)
-        body["usageInfo"] = usage_info if usage_info && !usage_info.respond_to?(:to_h)
+        body["usageInfo"] = serialized_usage_info if usage_info
         body
       end
 
       private
+
+      # Accepts an Api::SensitivityUsageInfo or a hash; @type defaults to
+      # CreativeWork like the TypeScript, Python, and .NET SDKs.
+      def serialized_usage_info
+        info = usage_info.respond_to?(:to_h) ? usage_info.to_h : usage_info
+        return info unless info.is_a?(Hash)
+
+        { "@type" => "CreativeWork" }.merge(Common::Hashes.deep_stringify_keys(info).compact)
+      end
 
       def validate!
         validate_required!("name", name)
