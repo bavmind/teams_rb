@@ -73,6 +73,22 @@ class FilesTest < Minitest::Test
     assert_equal DOWNLOAD_URL, downloaded.source_url
   end
 
+  # Live capture shape (2026-11-05): SharePoint signs the query as issued;
+  # Faraday's default re-encoding sorted these keys and got a 401.
+  def test_download_sends_a_presigned_url_query_unchanged
+    query = "UniqueId=8f7fd38c-0b9d-41e2-9191-2fa7004c6571&Translate=false&tempauth=v1.e30.c2ln&ApiVersion=2.0"
+    path = "https://contoso-my.sharepoint.com/personal/user/_layouts/15/download.aspx"
+    seen_query = nil
+    @stubs.get(path) do |env|
+      seen_query = env.url.query
+      [200, {}, "bytes"]
+    end
+
+    accessor(activity([file_attachment(download_url: "#{path}?#{query}")])).first.download
+
+    assert_equal query, seen_query
+  end
+
   def test_download_falls_back_to_octet_stream_content_type
     @stubs.get(DOWNLOAD_URL) { [200, {}, "bytes"] }
 

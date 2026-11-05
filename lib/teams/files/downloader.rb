@@ -98,8 +98,21 @@ module Teams
         path.gsub(PERCENT_ESCAPE, &:upcase)
       end
 
+      # Faraday decodes every request URL's query and re-encodes it with the
+      # keys sorted. Pre-signed download URLs (SharePoint tempauth) are signed
+      # over the query as issued, so a reordered query is refused with 401.
+      # This encoder carries the query through untouched, the way the other
+      # SDKs' HTTP clients send these URLs. The downloader passes no params.
+      module VerbatimQueryEncoder
+        KEY = "verbatim_query"
+
+        def self.decode(query) = (query.nil? || query.empty?) ? nil : { KEY => query }
+        def self.encode(params) = params[KEY]
+      end
+
       def initialize(connection: nil, logger: nil)
         @connection = connection || Faraday.new
+        @connection.options.params_encoder = VerbatimQueryEncoder
         @logger = logger
       end
 
