@@ -73,7 +73,15 @@ github.signed_in?(ctx)
 
 `flow.sign_in` always uses the flow's own connection; its card text defaults to the flow's and can be overridden per call. Flow handlers run in registration order and are isolated: one that raises is logged and the rest still run. The app-level `on_sign_in` still fires for every connection, and `teams.on_oauth_sign_in_failure { |event| ... }` receives each `signin/failure` callback once as a `Teams::OAuth::SignInFailureEvent` (`context`, `connection_name`, `code`, `message`).
 
-Registering a flow turns on [per-turn state](state.md) when you didn't set `state:`, so the SDK can remember which connection a sign-in started on. Pass `state: false` to opt out.
+### How callbacks find their flow
+
+- **Silent SSO** (`signin/tokenExchange`) names its connection, so it always reaches the right flow.
+- **The card's sign-in button** (`signin/verifyState`) carries only a one-time code. The SDK tries the connections in order — the ones with a pending sign-in for this user (newest first), the remaining registered flows, then `default_connection_name` — until one accepts the code; none accepting answers 404.
+- **`signin/failure`** carries no connection either. It is attributed to the newest pending sign-in that offered silent SSO; if none can be found, `on_oauth_sign_in_failure` reports `connection_name` `nil` and every registered flow's failure handlers are notified, each with its own connection name.
+
+`flow.sign_in` / `ctx.sign_in` record the pending sign-in in [per-turn state](state.md), which registering a flow turns on when you didn't set `state:`. With `state: false`, pending sign-ins live in a short-lived in-process cache, so a callback handled by another instance cannot be attributed — use shared state storage when running several instances.
+
+Teams delivers one silent-SSO exchange to every client the user is signed in on; the SDK runs it once. Duplicates answer 200 without firing the sign-in events again, both on the same instance and — through conversation state — across instances.
 
 ## Custom invoke handling
 

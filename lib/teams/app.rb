@@ -6,7 +6,6 @@ module Teams
   class App
     DEFAULT_MESSAGING_ENDPOINT = "/api/messages"
     DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS_ENV_VAR = "DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS"
-    MAX_PROCESSED_EXCHANGE_IDS = 1000
     TRUE_ENV_VALUES = %w[1 true yes on].freeze
     FALSE_ENV_VALUES = %w[0 false no off].freeze
 
@@ -78,6 +77,7 @@ module Teams
       # One plain connection for inbound file downloads, shared across turns.
       @files_downloader = Files::Downloader.new(logger:)
 
+      @oauth_handlers = OAuth::Handlers.new(self)
       register_default_oauth_handlers
       warn_missing_credentials
     end
@@ -232,6 +232,12 @@ module Teams
 
     def emit_sign_in_failure(event)
       @sign_in_failure_handlers.each { |handler| handler.call(event) }
+    end
+
+    # Process-local pending sign-ins, used when per-turn state is off.
+    # Plumbing for ActivityContext#sign_in.
+    def oauth_pending_cache
+      @oauth_handlers.pending_cache
     end
 
     def emit_error(error, activity: nil)
@@ -520,161 +526,15 @@ module Teams
       value.to_s.empty? ? nil : value
     end
 
-    # Default OAuth handlers, mirroring the TypeScript/Python OauthHandlers:
-    # registered first on the signin routes, they complete the flows, fire
-    # the sign-in/error events, and chain to user handlers via next. Their
-    # return value is the invoke response; 412 tells the Teams client to
-    # fall back to the interactive card flow.
+    # Default OAuth handlers (OAuth::Handlers), registered first on the signin
+    # routes so they complete the flows and chain to user handlers via next.
     def register_default_oauth_handlers
-      app = self
-
-      # Each Teams client (desktop, web, mobile) that renders the OAuth card
-      # attempts its own silent exchange, so one sign-in can produce several
-      # signin/tokenExchange invokes sharing the same value id. Only the first
-      # runs the exchange and fires sign-in; a duplicate of a completed
-      # exchange answers 200 without re-emitting or chaining, and a duplicate
-      # arriving while the first is in flight waits and returns its result.
-      # Failed exchanges are not marked, so each attempt gets its own 412.
-      exchange_mutex = Mutex.new
-      processed_exchange_ids = []
-      exchange_locks = {}
-
-      perform_token_exchange = lambda do |ctx, nxt|
-        value = ctx.activity.value
-        begin
-          if value.raw["connectionName"] != app.default_connection_name
-            app.logger&.warn(
-              "Sign-in token exchange invoked with connection name #{value.raw["connectionName"].inspect}, " \
-              "but the default connection name is #{app.default_connection_name.inspect}. " \
-              "Token verification will likely fail."
-            )
-          end
-
-          begin
-            token = ctx.api.users.exchange_token(
-              user_id: ctx.activity.from.id,
-              connection_name: value.raw["connectionName"],
-              channel_id: ctx.activity.channel_id,
-              exchange_request: { "token" => value.raw["token"] }
-            )
-            app.emit_sign_in(ctx, token)
-            nil
-          rescue HttpError => error
-            unless [404, 400, 412].include?(error.status)
-              app.logger&.error("Error exchanging token: #{error.message}")
-              app.emit_error(error, activity: ctx.activity)
-              next Response.new(status: error.status || 500)
-            end
-
-            Response.new(
-              status: 412,
-              body: {
-                "id" => value.raw["id"],
-                "connectionName" => value.raw["connectionName"],
-                "failureDetail" => error.message
-              }
-            )
-          end
-        ensure
-          nxt.call
-        end
-      end
-
-      @router.on_signin_token_exchange do |ctx, nxt|
-        exchange_id = ctx.activity.value.raw["id"]
-        next perform_token_exchange.call(ctx, nxt) unless exchange_id
-
-        lock = nil
-        duplicate = exchange_mutex.synchronize do
-          if processed_exchange_ids.include?(exchange_id)
-            true
-          else
-            lock = (exchange_locks[exchange_id] ||= { mutex: Mutex.new, settled: false, result: nil })
-            false
-          end
-        end
-        next Response.new(status: 200) if duplicate
-
-        outcome = lock[:mutex].synchronize do
-          if lock[:settled]
-            lock[:result]
-          else
-            result = perform_token_exchange.call(ctx, nxt)
-            if result.nil?
-              exchange_mutex.synchronize do
-                processed_exchange_ids << exchange_id
-                processed_exchange_ids.shift while processed_exchange_ids.length > MAX_PROCESSED_EXCHANGE_IDS
-              end
-              lock[:result] = Response.new(status: 200)
-            else
-              lock[:result] = result
-            end
-            lock[:settled] = true
-            result
-          end
-        end
-        exchange_mutex.synchronize { exchange_locks.delete(exchange_id) }
-        outcome
-      end
-
-      @router.on_signin_verify_state do |ctx, nxt|
-        begin
-          state = ctx.activity.value.raw["state"]
-          if state.to_s.empty?
-            app.logger&.warn("Auth state not present on signin/verifyState invoke")
-            next Response.new(status: 404)
-          end
-
-          begin
-            token = ctx.api.users.get_token(
-              user_id: ctx.activity.from.id,
-              connection_name: app.default_connection_name,
-              channel_id: ctx.activity.channel_id,
-              code: state
-            )
-            app.emit_sign_in(ctx, token)
-            nil
-          rescue HttpError => error
-            app.logger&.error("Error verifying sign-in state: #{error.message}")
-            unless [404, 400, 412].include?(error.status)
-              app.emit_error(error, activity: ctx.activity)
-              next Response.new(status: error.status || 500)
-            end
-
-            Response.new(status: 412)
-          end
-        ensure
-          nxt.call
-        end
-      end
-
-      @router.on_signin_failure do |ctx, nxt|
-        begin
-          value = ctx.activity.value
-          app.logger&.warn(
-            "Sign-in failed: #{value.raw["code"]} - #{value.raw["message"]}. " \
-            "If the code is 'resourcematchfailed', verify the Entra app registration's " \
-            "Application ID URI matches the OAuth connection's Token Exchange URL."
-          )
-          app.emit_error(
-            Error.new("Sign-in failure: #{value.raw["code"]} - #{value.raw["message"]}"),
-            activity: ctx.activity
-          )
-          app.emit_sign_in_failure(
-            OAuth::SignInFailureEvent.new(
-              context: ctx,
-              connection_name: app.oauth_registry.empty? ? app.default_connection_name : nil,
-              code: value.raw["code"],
-              message: value.raw["message"]
-            )
-          )
-          nil
-        ensure
-          nxt.call
-        end
-      end
+      handlers = @oauth_handlers
+      @router.on_signin_token_exchange { |ctx, nxt| handlers.token_exchange(ctx, nxt) }
+      @router.on_signin_verify_state { |ctx, nxt| handlers.verify_state(ctx, nxt) }
+      @router.on_signin_failure { |ctx, nxt| handlers.failure(ctx, nxt) }
     end
-
+    
     # Resolves the state: option like the Python SDK: nil/false disables
     # state, true enables it on the app's storage, State::StateOptions
     # configures the storage and key prefix.

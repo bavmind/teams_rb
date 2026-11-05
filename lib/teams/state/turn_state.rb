@@ -55,6 +55,12 @@ module Teams
         self
       end
 
+      # Forces the next save to write this scope.
+      def mark_dirty
+        @baseline = nil
+        self
+      end
+
       # Marks the current contents as saved; used by the loader.
       def mark_clean
         current = fingerprint

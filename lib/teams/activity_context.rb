@@ -163,7 +163,7 @@ module Teams
         ]
       }
 
-      app.send_activity(conversation_reference, payload, api:)
+      send_sign_in_card(payload, connection_name, sso_offered: card.key?("tokenExchangeResource"))
       nil
     end
 
@@ -232,6 +232,36 @@ module Teams
     end
 
     private
+
+    # Records which connection the sign-in started on, so the connection-less
+    # verify-state and failure callbacks can be routed to its flow, then sends
+    # the card. With state the record is saved right away; if the card cannot
+    # be sent, the previous records are restored so they cannot mis-route a
+    # later callback.
+    def send_sign_in_card(payload, connection_name, sso_offered:)
+      cache = app.oauth_pending_cache
+      scope = { conversation_id: activity.conversation&.id, user_id: activity.from&.id }
+      previous = OAuth::PendingSignIns.list(state, cache, **scope)
+      begin
+        OAuth::PendingSignIns.record(state, cache, connection_name, sso_offered:, **scope)
+        state&.save
+        app.send_activity(conversation_reference, payload, api:)
+      rescue StandardError
+        begin
+          OAuth::PendingSignIns.replace(state, cache, previous, **scope)
+          if state
+            state.user&.mark_dirty
+            state.save
+          end
+        rescue StandardError => rollback_error
+          log&.warn(
+            "Failed to roll back pending OAuth sign-in state for connection '#{connection_name}': " \
+            "#{rollback_error.message}"
+          )
+        end
+        raise
+      end
+    end
 
     def incoming_targeted_sender
       return nil unless activity.message?
