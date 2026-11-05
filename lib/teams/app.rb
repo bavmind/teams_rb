@@ -10,8 +10,9 @@ module Teams
     TRUE_ENV_VALUES = %w[1 true yes on].freeze
     FALSE_ENV_VALUES = %w[0 false no off].freeze
 
+    # files_downloader and oauth_registry are plumbing for ActivityContext.
     attr_reader :api, :logger, :storage, :messaging_endpoint, :default_connection_name, :graph,
-      :files_downloader
+      :files_downloader, :oauth_registry
 
     def client_id
       @token_manager.client_id
@@ -35,7 +36,10 @@ module Teams
     )
       @default_connection_name = default_connection_name
       @sign_in_handlers = []
+      @sign_in_failure_handlers = []
       @error_handlers = []
+      @oauth_registry = OAuth::FlowRegistry.new
+      @state_option = state
       @functions = {}
       @logger = logger
       @storage = storage
@@ -177,8 +181,57 @@ module Teams
       self
     end
 
+    # Called with an OAuth::SignInFailureEvent when the Teams client reports
+    # a failed sign-in (the signin/failure invoke). Terminal Token Service
+    # errors reach only the flows' own on_sign_in_failure handlers. The oauth_
+    # prefix keeps it apart from the on_signin_failure route on this object.
+    def on_oauth_sign_in_failure(&block)
+      @sign_in_failure_handlers << block
+      self
+    end
+
+    # Registers a named OAuth connection and returns its OAuth::Flow, like
+    # the Python SDK's add_oauth_flow. Connection names are case-insensitive
+    # and must be unique. Registering a flow turns on per-turn state when the
+    # state: option was left unset, because connection-less callbacks need
+    # somewhere to record which connection a sign-in started on; pass
+    # state: false to opt out (pending sign-ins then use a bounded
+    # process-local cache).
+    def add_oauth_flow(connection_name, oauth_card_text: OAuth::DEFAULT_OAUTH_CARD_TEXT,
+      sign_in_button_text: OAuth::DEFAULT_SIGN_IN_BUTTON_TEXT)
+      flow = @oauth_registry.add(
+        OAuth::Flow.new(connection_name, oauth_card_text:, sign_in_button_text:, logger:)
+      )
+      # Only after the registry accepted it, so a rejected duplicate cannot
+      # switch state on.
+      if @state_option.nil? && @state_loader.nil?
+        @state_loader = create_state_loader(true)
+        logger&.debug(
+          "Enabled per-turn state because an OAuth flow was registered and no state option was set. " \
+          "Pass state: false to opt out, or state: true / StateOptions to choose the storage."
+        )
+      end
+      flow
+    end
+
+    # The registered flow for a connection (case-insensitive); raises when
+    # none is registered.
+    def get_oauth_flow(connection_name)
+      flow = @oauth_registry[connection_name]
+      return flow if flow
+
+      registered = @oauth_registry.names.join(", ")
+      registered = "<none>" if registered.empty?
+      raise ArgumentError,
+        "No OAuth flow registered for connection '#{connection_name}'. Registered connections: #{registered}."
+    end
+
     def emit_sign_in(context, token_response)
       @sign_in_handlers.each { |handler| handler.call(context, token_response) }
+    end
+
+    def emit_sign_in_failure(event)
+      @sign_in_failure_handlers.each { |handler| handler.call(event) }
     end
 
     def emit_error(error, activity: nil)
@@ -606,6 +659,14 @@ module Teams
           app.emit_error(
             Error.new("Sign-in failure: #{value.raw["code"]} - #{value.raw["message"]}"),
             activity: ctx.activity
+          )
+          app.emit_sign_in_failure(
+            OAuth::SignInFailureEvent.new(
+              context: ctx,
+              connection_name: app.oauth_registry.empty? ? app.default_connection_name : nil,
+              code: value.raw["code"],
+              message: value.raw["message"]
+            )
           )
           nil
         ensure

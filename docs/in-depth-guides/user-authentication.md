@@ -46,14 +46,34 @@ teams.on_sign_in do |ctx, _token|
 end
 ```
 
-Or the raw token from the token service:
+Or the raw token: `ctx.get_user_token(connection_name: "graph")` returns it, or `nil` when the user is not signed in. Only the token service's 404 means "not signed in" — any other failure raises, so an outage is never mistaken for a signed-out user (the same applies to `ctx.sign_in`). `ctx.get_connection_status` returns the token status of every OAuth connection on the bot in one call.
+
+## Multiple connections
+
+Register each OAuth connection as a named flow, then sign in, read tokens, and react to completions per connection:
 
 ```ruby
-response = ctx.api.users.get_token(
-  user_id: ctx.activity.from.id, connection_name: "graph", channel_id: ctx.activity.channel_id
-)
-response.token   # the delegated access token
+github = teams.add_oauth_flow("github", oauth_card_text: "Sign in with GitHub")
+graph = teams.add_oauth_flow("graph")
+
+teams.on_message("/github") { |ctx| github.sign_in(ctx) }
+teams.on_message("/logout") { |ctx| github.sign_out(ctx) }
+
+github.on_sign_in do |event|
+  event.context.post "Signed in to GitHub (#{event.connection_name})"
+end
+github.on_sign_in_failure do |event|
+  event.context.log.warn("GitHub sign-in failed: #{event.code} #{event.message}")
+end
+
+teams.get_oauth_flow("GITHUB")   # case-insensitive lookup; raises when not registered
+github.get_token(ctx)            # token or nil
+github.signed_in?(ctx)
 ```
+
+`flow.sign_in` always uses the flow's own connection; its card text defaults to the flow's and can be overridden per call. Flow handlers run in registration order and are isolated: one that raises is logged and the rest still run. The app-level `on_sign_in` still fires for every connection, and `teams.on_oauth_sign_in_failure { |event| ... }` receives each `signin/failure` callback once as a `Teams::OAuth::SignInFailureEvent` (`context`, `connection_name`, `code`, `message`).
+
+Registering a flow turns on [per-turn state](state.md) when you didn't set `state:`, so the SDK can remember which connection a sign-in started on. Pass `state: false` to opt out.
 
 ## Custom invoke handling
 

@@ -129,16 +129,10 @@ module Teams
     def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
       connection_name ||= app.default_connection_name
 
-      begin
-        response = api.users.get_token(
-          user_id: activity.from.id,
-          connection_name:,
-          channel_id: activity.channel_id
-        )
-        return response.token if response.token && !response.token.to_s.empty?
-      rescue HttpError
-        # No token yet; continue with the OAuth card flow.
-      end
+      connection_name = OAuth.normalize_connection_name(connection_name)
+
+      token = get_user_token(connection_name:)
+      return token if token && !token.to_s.empty?
 
       state = Base64.strict_encode64(JSON.generate(
         "connectionName" => connection_name,
@@ -171,6 +165,56 @@ module Teams
 
       app.send_activity(conversation_reference, payload, api:)
       nil
+    end
+
+    # The user's token for a connection (default: the app's default
+    # connection), or nil when not signed in. Only the Token Service's 404
+    # means "not signed in"; other failures raise, so an outage is never
+    # mistaken for a signed-out user. Prefer app.get_oauth_flow(name).get_token
+    # with registered flows.
+    def get_user_token(connection_name: nil)
+      api.users.get_token(
+        user_id: activity.from.id,
+        connection_name: connection_name || app.default_connection_name,
+        channel_id: activity.channel_id
+      ).token
+    rescue HttpError => error
+      raise unless error.status == 404
+
+      nil
+    end
+
+    # Token status for every OAuth connection on the bot in one Token Service
+    # call. The bulk call can lag a fresh sign-in or omit a connection, so a
+    # registered flow reported missing or without a token is re-checked with
+    # a direct lookup, like the Python SDK.
+    def get_connection_status
+      statuses = api.users.get_token_status(user_id: activity.from.id, channel_id: activity.channel_id)
+      registered = app.oauth_registry.each_with_object({}) do |flow, names|
+        names[OAuth.lookup_key(flow.connection_name)] = flow.connection_name
+      end
+      return statuses if registered.empty?
+
+      resolved = Set.new
+      corrected = statuses.map do |status|
+        key = OAuth.lookup_key(status.connection_name)
+        resolved << key if key
+        next status if key.nil? || !registered.key?(key) || status.has_token
+
+        get_user_token(connection_name: registered[key]) ? Api::TokenStatus.new(status.to_h.merge("hasToken" => true)) : status
+      end
+
+      registered.each do |key, name|
+        next if resolved.include?(key)
+
+        corrected << Api::TokenStatus.new(
+          "channelId" => activity.channel_id,
+          "connectionName" => name,
+          "hasToken" => !get_user_token(connection_name: name).nil?,
+          "serviceProviderDisplayName" => ""
+        )
+      end
+      corrected
     end
 
     # Clears the user's token for the connection. Failures are logged, not
