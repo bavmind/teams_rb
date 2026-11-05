@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file. The format foll
 
 - Targeted messages are allowed in 1:1 (personal) chats; `send_activity` no longer raises for them, matching the same change in the TypeScript, Python, and .NET SDKs
 - Teams no longer supports stopping a stream, so stream cancellation handling is removed: a 403 mentioning cancellation is a `TerminalStreamError` like any other terminal stream failure, emits after it keep working, and the streaming time limit is documented as ten minutes. Matches the TypeScript, Python, and .NET SDKs
+- Adaptive Card classes no longer serialize schema defaults for optional fields the caller never set (for example `theme`, `fillMode`, `horizontalAlignment`, `requires`), which roughly tripled payload size; `version` keeps its `1.5` default and explicitly set values, including `false`, still serialize. Regenerated from the same generator change in the TypeScript, Python, and .NET SDKs
 
 ### Deprecated
 

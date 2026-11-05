@@ -29,12 +29,20 @@ class CardsGeneratedTest < Minitest::Test
     end
   end
 
+  # No upstream card field currently has a mutable default (the generator
+  # emits mutable: true for Pydantic default_factory fields), so exercise the
+  # mechanism on a synthetic card.
   def test_mutable_defaults_are_not_shared_between_instances
-    first = Teams::Cards::TextBlock.new("a")
-    second = Teams::Cards::TextBlock.new("b")
+    klass = Class.new(Teams::Cards::GeneratedCard) { field :requires, "requires", {}, mutable: true }
+    first = klass.new
+    second = klass.new
     first.requires["capability"] = "x"
 
     refute second.requires.key?("capability")
+  end
+
+  def test_unset_optional_fields_are_not_serialized
+    assert_equal({ "type" => "TextBlock", "text" => "hi" }, Teams::Cards::TextBlock.new("hi").to_h)
   end
 
   def test_preserved_ruby_conveniences

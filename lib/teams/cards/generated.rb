@@ -36,9 +36,9 @@ module Teams
     class BackgroundImage < SerializableObject
       field :key, "key"
       field :url, "url"
-      field :fill_mode, "fillMode", "Cover"
-      field :horizontal_alignment, "horizontalAlignment", "Left"
-      field :vertical_alignment, "verticalAlignment", "Top"
+      field :fill_mode, "fillMode"
+      field :horizontal_alignment, "horizontalAlignment"
+      field :vertical_alignment, "verticalAlignment"
       field :themed_urls, "themedUrls"
     end
 
@@ -46,7 +46,7 @@ module Teams
     class BarChartDataValue < SerializableObject
       field :key, "key"
       field :x, "x"
-      field :y, "y", 0
+      field :y, "y"
     end
 
     # Represents a calendar event attendee.
@@ -123,7 +123,7 @@ module Teams
     class DonutChartData < SerializableObject
       field :key, "key"
       field :legend, "legend"
-      field :value, "value", 0
+      field :value, "value"
       field :color, "color"
     end
 
@@ -145,7 +145,7 @@ module Teams
     # The legend of the chart.
     class GaugeChartLegend < SerializableObject
       field :key, "key"
-      field :size, "size", 0
+      field :size, "size"
       field :legend, "legend"
       field :color, "color"
     end
@@ -154,10 +154,10 @@ module Teams
     class GridArea < SerializableObject
       field :key, "key"
       field :name, "name"
-      field :column, "column", 1
-      field :column_span, "columnSpan", 1
-      field :row, "row", 1
-      field :row_span, "rowSpan", 1
+      field :column, "column"
+      field :column_span, "columnSpan"
+      field :row, "row"
+      field :row_span, "rowSpan"
     end
 
     # Represents a series of data points.
@@ -172,7 +172,7 @@ module Teams
     class HorizontalBarChartDataValue < SerializableObject
       field :key, "key"
       field :x, "x"
-      field :y, "y", 0
+      field :y, "y"
       field :color, "color"
     end
 
@@ -185,9 +185,9 @@ module Teams
     class IconInfo < SerializableObject
       field :key, "key"
       field :name, "name"
-      field :size, "size", "xSmall"
-      field :style, "style", "Regular"
-      field :color, "color", "Default"
+      field :size, "size"
+      field :style, "style"
+      field :color, "color"
     end
 
     # Represents Teams-specific data in an Action.Submit to send an Instant Message back to the Bot.
@@ -216,7 +216,7 @@ module Teams
     class LineChartValue < SerializableObject
       field :key, "key"
       field :x, "x"
-      field :y, "y", 0
+      field :y, "y"
     end
 
     # Defines the source URL of a media stream. YouTube, Dailymotion, Vimeo and Microsoft Stream URLs are supported.
@@ -239,7 +239,7 @@ module Teams
       field :key, "key"
       field :id, "id"
       field :name, "name"
-      field :mention_type, "mentionType", "Person"
+      field :mention_type, "mentionType"
     end
 
     # Represents Teams-specific data in an Action.Submit to send a message back to the Bot.
@@ -324,7 +324,7 @@ module Teams
     class StackedHorizontalBarChartDataPoint < SerializableObject
       field :key, "key"
       field :legend, "legend"
-      field :value, "value", 0
+      field :value, "value"
       field :color, "color"
     end
 
@@ -389,7 +389,7 @@ module Teams
     # Defines a theme-specific URL.
     class ThemedUrl < SerializableObject
       field :key, "key"
-      field :theme, "theme", "Light"
+      field :theme, "theme"
       field :url, "url"
     end
 
@@ -405,7 +405,7 @@ module Teams
     class VerticalBarChartDataValue < SerializableObject
       field :key, "key"
       field :x, "x"
-      field :y, "y", 0
+      field :y, "y"
       field :color, "color"
     end
 
@@ -414,15 +414,15 @@ module Teams
       field :key, "key"
       field :type, "type", "ActionSet"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
       field :actions, "actions"
@@ -435,9 +435,9 @@ module Teams
       field :key, "key"
       field :type, "type", "AdaptiveCard"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
       field :layouts, "layouts"
@@ -470,8 +470,8 @@ module Teams
       field :target_width, "targetWidth"
       field :columns, "columns"
       field :areas, "areas"
-      field :column_spacing, "columnSpacing", "Default"
-      field :row_spacing, "rowSpacing", "Default"
+      field :column_spacing, "columnSpacing"
+      field :row_spacing, "rowSpacing"
     end
 
     # A badge element to show an icon and/or text in a compact form over a colored background.
@@ -479,22 +479,22 @@ module Teams
       field :key, "key"
       field :type, "type", "Badge"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :text, "text"
       field :icon, "icon"
-      field :icon_position, "iconPosition", "Before"
-      field :appearance, "appearance", "Filled"
-      field :size, "size", "Medium"
-      field :shape, "shape", "Circular"
-      field :style, "style", "Default"
+      field :icon_position, "iconPosition"
+      field :appearance, "appearance"
+      field :size, "size"
+      field :shape, "shape"
+      field :style, "style"
       field :tooltip, "tooltip"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -505,17 +505,17 @@ module Teams
       field :key, "key"
       field :type, "type", "Carousel"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
-      field :bleed, "bleed", false
+      field :is_sort_key, "isSortKey"
+      field :bleed, "bleed"
       field :min_height, "minHeight"
-      field :page_animation, "pageAnimation", "Slide"
+      field :page_animation, "pageAnimation"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
       field :pages, "pages"
@@ -526,16 +526,16 @@ module Teams
       field :key, "key"
       field :type, "type", "CarouselPage"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :height, "height"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
       field :layouts, "layouts"
       field :min_height, "minHeight"
       field :background_image, "backgroundImage"
@@ -552,26 +552,26 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.ChoiceSet"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
       field :choices, "choices"
       field :choices_data, "choices.data"
-      field :style, "style", "compact"
-      field :is_multi_select, "isMultiSelect", false
+      field :style, "style"
+      field :is_multi_select, "isMultiSelect"
       field :placeholder, "placeholder"
-      field :wrap, "wrap", true
-      field :use_multiple_columns, "useMultipleColumns", false
+      field :wrap, "wrap"
+      field :use_multiple_columns, "useMultipleColumns"
       field :min_column_width, "minColumnWidth"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -584,18 +584,18 @@ module Teams
       field :key, "key"
       field :type, "type", "CodeBlock"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :code_snippet, "codeSnippet"
-      field :language, "language", "PlainText"
-      field :start_line_number, "startLineNumber", 1
+      field :language, "language"
+      field :start_line_number, "startLineNumber"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -605,21 +605,21 @@ module Teams
       field :key, "key"
       field :type, "type", "Column"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
       field :layouts, "layouts"
-      field :bleed, "bleed", false
+      field :bleed, "bleed"
       field :min_height, "minHeight"
       field :background_image, "backgroundImage"
       field :vertical_content_alignment, "verticalContentAlignment"
@@ -636,20 +636,20 @@ module Teams
       field :key, "key"
       field :type, "type", "ColumnSet"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
-      field :bleed, "bleed", false
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
+      field :bleed, "bleed"
       field :min_height, "minHeight"
       field :min_width, "minWidth"
       field :grid_area, "gridArea"
@@ -662,15 +662,15 @@ module Teams
       field :key, "key"
       field :type, "type", "Component"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name", "graph.microsoft.com/event"
       field :properties, "properties"
       field :grid_area, "gridArea"
@@ -682,15 +682,15 @@ module Teams
       field :key, "key"
       field :type, "type", "Component"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name", "graph.microsoft.com/file"
       field :properties, "properties"
       field :grid_area, "gridArea"
@@ -702,15 +702,15 @@ module Teams
       field :key, "key"
       field :type, "type", "Component"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name", "graph.microsoft.com/resource"
       field :properties, "properties"
       field :grid_area, "gridArea"
@@ -722,15 +722,15 @@ module Teams
       field :key, "key"
       field :type, "type", "Component"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name", "graph.microsoft.com/user"
       field :properties, "properties"
       field :grid_area, "gridArea"
@@ -742,15 +742,15 @@ module Teams
       field :key, "key"
       field :type, "type", "Component"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name", "graph.microsoft.com/users"
       field :properties, "properties"
       field :grid_area, "gridArea"
@@ -762,15 +762,15 @@ module Teams
       field :key, "key"
       field :type, "type", "CompoundButton"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :icon, "icon"
       field :badge, "badge"
       field :title, "title"
@@ -785,21 +785,21 @@ module Teams
       field :key, "key"
       field :type, "type", "Container"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
       field :layouts, "layouts"
-      field :bleed, "bleed", false
+      field :bleed, "bleed"
       field :min_height, "minHeight"
       field :background_image, "backgroundImage"
       field :vertical_content_alignment, "verticalContentAlignment"
@@ -815,16 +815,16 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Date"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
@@ -840,25 +840,25 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.Donut"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :data, "data"
       field :value, "value"
       field :value_color, "valueColor"
       field :thickness, "thickness"
-      field :show_outlines, "showOutlines", true
+      field :show_outlines, "showOutlines"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -868,18 +868,18 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.Execute"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :data, "data"
       field :associated_inputs, "associatedInputs"
-      field :conditionally_enabled, "conditionallyEnabled", false
+      field :conditionally_enabled, "conditionallyEnabled"
       field :verb, "verb"
       field :fallback, "fallback"
     end
@@ -889,14 +889,14 @@ module Teams
       field :key, "key"
       field :type, "type", "FactSet"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :facts, "facts"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -907,14 +907,14 @@ module Teams
       field :key, "key"
       field :type, "type", "Layout.Flow"
       field :target_width, "targetWidth"
-      field :horizontal_items_alignment, "horizontalItemsAlignment", "Center"
-      field :vertical_items_alignment, "verticalItemsAlignment", "Top"
-      field :item_fit, "itemFit", "Fit"
+      field :horizontal_items_alignment, "horizontalItemsAlignment"
+      field :vertical_items_alignment, "verticalItemsAlignment"
+      field :item_fit, "itemFit"
       field :min_item_width, "minItemWidth"
       field :max_item_width, "maxItemWidth"
       field :item_width, "itemWidth"
-      field :column_spacing, "columnSpacing", "Default"
-      field :row_spacing, "rowSpacing", "Default"
+      field :column_spacing, "columnSpacing"
+      field :row_spacing, "rowSpacing"
     end
 
     # A gauge chart.
@@ -922,29 +922,29 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.Gauge"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
-      field :min, "min", 0
+      field :show_legend, "showLegend"
+      field :min, "min"
       field :max, "max"
       field :sub_label, "subLabel"
-      field :show_min_max, "showMinMax", true
-      field :show_needle, "showNeedle", true
-      field :show_outlines, "showOutlines", true
+      field :show_min_max, "showMinMax"
+      field :show_needle, "showNeedle"
+      field :show_outlines, "showOutlines"
       field :segments, "segments"
-      field :value, "value", 0
-      field :value_format, "valueFormat", "Percentage"
+      field :value, "value"
+      field :value_format, "valueFormat"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -954,26 +954,26 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.VerticalBar.Grouped"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :x_axis_title, "xAxisTitle"
       field :y_axis_title, "yAxisTitle"
       field :color, "color"
-      field :stacked, "stacked", false
+      field :stacked, "stacked"
       field :data, "data"
-      field :show_bar_values, "showBarValues", false
+      field :show_bar_values, "showBarValues"
       field :y_min, "yMin"
       field :y_max, "yMax"
       field :grid_area, "gridArea"
@@ -985,25 +985,25 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.HorizontalBar"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :x_axis_title, "xAxisTitle"
       field :y_axis_title, "yAxisTitle"
       field :color, "color"
       field :data, "data"
-      field :display_mode, "displayMode", "AbsoluteWithAxis"
+      field :display_mode, "displayMode"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1013,18 +1013,18 @@ module Teams
       field :key, "key"
       field :type, "type", "Icon"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
+      field :is_visible, "isVisible"
+      field :separator, "separator"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :name, "name"
-      field :size, "size", "Standard"
-      field :style, "style", "Regular"
-      field :color, "color", "Default"
+      field :size, "size"
+      field :style, "style"
+      field :color, "color"
       field :select_action, "selectAction"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -1036,12 +1036,12 @@ module Teams
       field :type, "type", "IconRun"
       field :id, "id"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :is_sort_key, "isSortKey", false
+      field :is_visible, "isVisible"
+      field :is_sort_key, "isSortKey"
       field :name, "name"
-      field :size, "size", "Default"
-      field :style, "style", "Regular"
-      field :color, "color", "Default"
+      field :size, "size"
+      field :style, "style"
+      field :color, "color"
       field :select_action, "selectAction"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -1052,28 +1052,28 @@ module Teams
       field :key, "key"
       field :type, "type", "Image"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
+      field :is_visible, "isVisible"
+      field :separator, "separator"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :url, "url"
       field :alt_text, "altText"
       field :background_color, "backgroundColor"
-      field :style, "style", "Default"
-      field :size, "size", "Auto"
-      field :width, "width", "auto"
+      field :style, "style"
+      field :size, "size"
+      field :width, "width"
       field :select_action, "selectAction"
-      field :allow_expand, "allowExpand", false
+      field :allow_expand, "allowExpand"
       field :msteams, "msteams"
       field :themed_urls, "themedUrls"
-      field :fit_mode, "fitMode", "Fill"
-      field :horizontal_content_alignment, "horizontalContentAlignment", "Left"
-      field :vertical_content_alignment, "verticalContentAlignment", "Top"
-      field :height, "height", "auto"
+      field :fit_mode, "fitMode"
+      field :horizontal_content_alignment, "horizontalContentAlignment"
+      field :vertical_content_alignment, "verticalContentAlignment"
+      field :height, "height"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1084,11 +1084,11 @@ module Teams
       field :type, "type", "ImageRun"
       field :id, "id"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :is_sort_key, "isSortKey", false
+      field :is_visible, "isVisible"
+      field :is_sort_key, "isSortKey"
       field :url, "url"
-      field :size, "size", "Default"
-      field :style, "style", "Default"
+      field :size, "size"
+      field :style, "style"
       field :select_action, "selectAction"
       field :themed_urls, "themedUrls"
       field :grid_area, "gridArea"
@@ -1100,17 +1100,17 @@ module Teams
       field :key, "key"
       field :type, "type", "ImageSet"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :images, "images"
-      field :image_size, "imageSize", "Medium"
+      field :image_size, "imageSize"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1120,18 +1120,18 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.InsertImage"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :url, "url"
       field :alt_text, "altText"
-      field :insert_position, "insertPosition", "Selection"
+      field :insert_position, "insertPosition"
       field :fallback, "fallback"
     end
 
@@ -1140,20 +1140,20 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.Line"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :x_axis_title, "xAxisTitle"
       field :y_axis_title, "yAxisTitle"
       field :color, "color"
@@ -1169,14 +1169,14 @@ module Teams
       field :key, "key"
       field :type, "type", "Media"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :sources, "sources"
       field :caption_sources, "captionSources"
       field :poster, "poster"
@@ -1190,16 +1190,16 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Number"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
@@ -1215,13 +1215,13 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.OpenUrl"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :url, "url"
@@ -1234,13 +1234,13 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.OpenUrlDialog"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :dialog_title, "dialogTitle"
@@ -1255,25 +1255,25 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.Pie"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :data, "data"
       field :value, "value"
       field :value_color, "valueColor"
       field :thickness, "thickness"
-      field :show_outlines, "showOutlines", true
+      field :show_outlines, "showOutlines"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1283,17 +1283,17 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.Popover"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :themed_icon_urls, "themedIconUrls"
       field :content, "content"
-      field :display_arrow, "displayArrow", true
-      field :position, "position", "Above"
+      field :display_arrow, "displayArrow"
+      field :position, "position"
       field :max_popover_width, "maxPopoverWidth"
       field :fallback, "fallback"
     end
@@ -1303,18 +1303,18 @@ module Teams
       field :key, "key"
       field :type, "type", "ProgressBar"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :value, "value"
-      field :max, "max", 100
-      field :color, "color", "Accent"
+      field :max, "max"
+      field :color, "color"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1324,18 +1324,18 @@ module Teams
       field :key, "key"
       field :type, "type", "ProgressRing"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :label_position, "labelPosition", "Below"
-      field :size, "size", "Medium"
+      field :label_position, "labelPosition"
+      field :size, "size"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1345,21 +1345,21 @@ module Teams
       field :key, "key"
       field :type, "type", "Rating"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :value, "value"
       field :count, "count"
-      field :max, "max", 5
-      field :size, "size", "Large"
-      field :color, "color", "Neutral"
-      field :style, "style", "Default"
+      field :max, "max"
+      field :size, "size"
+      field :color, "color"
+      field :style, "style"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1369,23 +1369,23 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Rating"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
-      field :max, "max", 5
-      field :allow_half_steps, "allowHalfSteps", false
-      field :size, "size", "Large"
-      field :color, "color", "Neutral"
+      field :max, "max"
+      field :allow_half_steps, "allowHalfSteps"
+      field :size, "size"
+      field :color, "color"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1395,13 +1395,13 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.ResetInputs"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :target_input_ids, "targetInputIds"
@@ -1413,15 +1413,15 @@ module Teams
       field :key, "key"
       field :type, "type", "RichTextBlock"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label_for, "labelFor"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -1433,13 +1433,13 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.ShowCard"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :fallback, "fallback"
@@ -1458,20 +1458,20 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.HorizontalBar.Stacked"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :x_axis_title, "xAxisTitle"
       field :y_axis_title, "yAxisTitle"
       field :color, "color"
@@ -1485,18 +1485,18 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.Submit"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :data, "data"
       field :associated_inputs, "associatedInputs"
-      field :conditionally_enabled, "conditionallyEnabled", false
+      field :conditionally_enabled, "conditionallyEnabled"
       field :msteams, "msteams"
       field :fallback, "fallback"
     end
@@ -1506,22 +1506,22 @@ module Teams
       field :key, "key"
       field :type, "type", "Table"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :style, "style"
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
       field :columns, "columns"
       field :min_width, "minWidth"
-      field :first_row_as_headers, "firstRowAsHeaders", true
-      field :show_grid_lines, "showGridLines", true
+      field :first_row_as_headers, "firstRowAsHeaders"
+      field :show_grid_lines, "showGridLines"
       field :grid_style, "gridStyle"
       field :horizontal_cell_content_alignment, "horizontalCellContentAlignment"
       field :vertical_cell_content_alignment, "verticalCellContentAlignment"
@@ -1535,18 +1535,18 @@ module Teams
       field :key, "key"
       field :type, "type", "TableCell"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :select_action, "selectAction"
       field :style, "style"
       field :layouts, "layouts"
-      field :bleed, "bleed", false
+      field :bleed, "bleed"
       field :min_height, "minHeight"
       field :background_image, "backgroundImage"
       field :vertical_content_alignment, "verticalContentAlignment"
@@ -1562,17 +1562,17 @@ module Teams
       field :key, "key"
       field :type, "type", "TableRow"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
-      field :show_border, "showBorder", false
-      field :rounded_corners, "roundedCorners", false
+      field :is_sort_key, "isSortKey"
+      field :show_border, "showBorder"
+      field :rounded_corners, "roundedCorners"
       field :style, "style"
       field :horizontal_cell_content_alignment, "horizontalCellContentAlignment"
       field :vertical_cell_content_alignment, "verticalCellContentAlignment"
@@ -1586,22 +1586,22 @@ module Teams
       field :key, "key"
       field :type, "type", "TextBlock"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :text, "text"
       field :size, "size"
       field :weight, "weight"
       field :color, "color"
       field :is_subtle, "isSubtle"
       field :font_type, "fontType"
-      field :wrap, "wrap", false
+      field :wrap, "wrap"
       field :max_lines, "maxLines"
       field :style, "style"
       field :label_for, "labelFor"
@@ -1615,23 +1615,23 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Text"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
       field :max_length, "maxLength"
-      field :is_multiline, "isMultiline", false
+      field :is_multiline, "isMultiline"
       field :placeholder, "placeholder"
-      field :style, "style", "Text"
+      field :style, "style"
       field :inline_action, "inlineAction"
       field :regex, "regex"
       field :grid_area, "gridArea"
@@ -1644,18 +1644,18 @@ module Teams
       field :type, "type", "TextRun"
       field :id, "id"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :is_sort_key, "isSortKey", false
+      field :is_visible, "isVisible"
+      field :is_sort_key, "isSortKey"
       field :text, "text"
       field :size, "size"
       field :weight, "weight"
       field :color, "color"
       field :is_subtle, "isSubtle"
       field :font_type, "fontType"
-      field :italic, "italic", false
-      field :strikethrough, "strikethrough", false
-      field :highlight, "highlight", false
-      field :underline, "underline", false
+      field :italic, "italic"
+      field :strikethrough, "strikethrough"
+      field :highlight, "highlight"
+      field :underline, "underline"
       field :select_action, "selectAction"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
@@ -1666,16 +1666,16 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Time"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
       field :value, "value"
@@ -1691,24 +1691,24 @@ module Teams
       field :key, "key"
       field :type, "type", "Input.Toggle"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
-      field :spacing, "spacing", "Default"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :label, "label"
-      field :is_required, "isRequired", false
+      field :is_required, "isRequired"
       field :error_message, "errorMessage"
       field :value_changed_action, "valueChangedAction"
-      field :value, "value", "false"
+      field :value, "value"
       field :title, "title"
-      field :value_on, "valueOn", "true"
-      field :value_off, "valueOff", "false"
-      field :wrap, "wrap", true
-      field :show_title, "showTitle", true
+      field :value_on, "valueOn"
+      field :value_off, "valueOff"
+      field :wrap, "wrap"
+      field :show_title, "showTitle"
       field :grid_area, "gridArea"
       field :fallback, "fallback"
     end
@@ -1718,13 +1718,13 @@ module Teams
       field :key, "key"
       field :type, "type", "Action.ToggleVisibility"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :title, "title"
       field :icon_url, "iconUrl"
-      field :style, "style", "default"
-      field :mode, "mode", "primary"
+      field :style, "style"
+      field :mode, "mode"
       field :tooltip, "tooltip"
-      field :is_enabled, "isEnabled", true
+      field :is_enabled, "isEnabled"
       field :menu_actions, "menuActions"
       field :themed_icon_urls, "themedIconUrls"
       field :target_elements, "targetElements"
@@ -1736,25 +1736,25 @@ module Teams
       field :key, "key"
       field :type, "type", "Chart.VerticalBar"
       field :id, "id"
-      field :requires, "requires", {}, mutable: true
+      field :requires, "requires"
       field :lang, "lang"
-      field :is_visible, "isVisible", true
-      field :separator, "separator", false
-      field :height, "height", "auto"
+      field :is_visible, "isVisible"
+      field :separator, "separator"
+      field :height, "height"
       field :horizontal_alignment, "horizontalAlignment"
-      field :spacing, "spacing", "Default"
+      field :spacing, "spacing"
       field :target_width, "targetWidth"
-      field :is_sort_key, "isSortKey", false
+      field :is_sort_key, "isSortKey"
       field :title, "title"
-      field :show_title, "showTitle", false
+      field :show_title, "showTitle"
       field :color_set, "colorSet"
       field :max_width, "maxWidth"
-      field :show_legend, "showLegend", true
+      field :show_legend, "showLegend"
       field :x_axis_title, "xAxisTitle"
       field :y_axis_title, "yAxisTitle"
       field :data, "data"
       field :color, "color"
-      field :show_bar_values, "showBarValues", false
+      field :show_bar_values, "showBarValues"
       field :y_min, "yMin"
       field :y_max, "yMax"
       field :grid_area, "gridArea"
