@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    teams_rb (2.0.3)
+    teams_rb (2.1.0)
       base64 (~> 0.3)
       faraday (~> 2.14)
       jwt (~> 3.3)
@@ -70,7 +70,7 @@ CHECKSUMS
   rack (3.2.8) sha256=1fecc85e463ebc7a2a945fff829ffcd549babeb1556384796fad946c28dc4ec7
   rack-test (2.3.0) sha256=b118d177cc002c572fc1b6fd8d19c9ed5881a36e8d6f689f9e618f9f861241e8
   rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
-  teams_rb (2.0.3)
+  teams_rb (2.1.0)
   timeout (0.6.1) sha256=78f57368a7e7bbadec56971f78a3f5ecbcfb59b7fcbb0a3ed6ddc08a5094accb
   uri (1.1.2) sha256=89292e98eabbef6248b0a0ed5e7e398e152f83f17560023a6d94a7f492b169fb
 

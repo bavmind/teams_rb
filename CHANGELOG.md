@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-05
+
 ### Added
 
 - `ctx.stream.update(text, text_format:)` sets the text format of an informative update, matching the TypeScript, Python, and .NET SDKs
@@ -122,7 +124,8 @@ the Python SDK made when it joined the family.
 - Thread-safe token management, storage, and JWKS caching for multi-threaded Rack servers
 - Documentation mirroring the official teams-sdk docs structure (getting started, essentials, in-depth guides)
 
-[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/bavmind/teams_rb/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/bavmind/teams_rb/compare/v2.0.3...v2.1.0
 [2.0.3]: https://github.com/bavmind/teams_rb/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/bavmind/teams_rb/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/bavmind/teams_rb/compare/v2.0.0...v2.0.1
