@@ -32,9 +32,11 @@ Gem::Specification.new do |spec|
   spec.add_dependency "base64", "~> 0.3"
   spec.add_dependency "faraday", "~> 2.14"
   spec.add_dependency "jwt", "~> 3.3"
+  spec.add_dependency "jwk-loader", "~> 1.3"
   spec.add_dependency "rack", "~> 3.2"
 
   spec.add_development_dependency "minitest", "~> 6.0"
   spec.add_development_dependency "rack-test", "~> 2.2"
   spec.add_development_dependency "rake", ">= 13"
+  spec.add_development_dependency "webmock", "~> 3.0"
 end
