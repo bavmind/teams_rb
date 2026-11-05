@@ -125,7 +125,10 @@ module Teams
     # chats and channels the card is a targeted message visible only to the
     # requesting user; channels omit the token exchange resource because
     # channel scope cannot do the silent SSO exchange, so the card renders
-    # the sign-in button instead.
+    # the sign-in button instead. With registered OAuth flows, prefer
+    # app.get_oauth_flow(name).sign_in(ctx), which pins the connection to
+    # the flow that owns it (the Python SDK marks this helper deprecated in
+    # its documentation for the same reason).
     def sign_in(connection_name: nil, oauth_card_text: "Please Sign In...", sign_in_button_text: "Sign In")
       connection_name ||= app.default_connection_name
 
