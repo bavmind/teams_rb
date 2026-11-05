@@ -13,6 +13,11 @@ All notable changes to this project are documented in this file. The format foll
 ### Changed
 
 - Targeted messages are allowed in 1:1 (personal) chats; `send_activity` no longer raises for them, matching the same change in the TypeScript, Python, and .NET SDKs
+- Teams no longer supports stopping a stream, so stream cancellation handling is removed: a 403 mentioning cancellation is a `TerminalStreamError` like any other terminal stream failure, emits after it keep working, and the streaming time limit is documented as ten minutes. Matches the TypeScript, Python, and .NET SDKs
+
+### Deprecated
+
+- `HttpStream#canceled` always returns false, and `Teams::StreamCancelledError` is never raised
 
 ### Fixed
 

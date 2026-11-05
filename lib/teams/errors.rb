@@ -9,15 +9,15 @@ module Teams
 
   class BadRequestError < Error; end
 
-  # Raised when Teams cancels a stream (for example, the user pressed Stop)
-  # or when a stream operation is attempted after cancellation.
+  # Deprecated: Teams no longer supports stopping a stream, so the SDK never
+  # raises this. Kept so existing rescue clauses keep loading.
   class StreamCancelledError < Error; end
 
   # Base class for terminal streaming errors (HTTP 403) that should not be retried.
-  # https://learn.microsoft.com/en-us/microsoftteams/platform/bots/streaming-ux?tabs=csharp#error-codes
+  # https://learn.microsoft.com/en-us/microsoftteams/platform/bots/streaming-ux#response-codes
   class TerminalStreamError < Error; end
 
-  # Raised when the bot failed to complete streaming within the two-minute limit.
+  # Raised when the bot failed to complete streaming within the ten-minute limit.
   class StreamTimedOutError < TerminalStreamError; end
 
   # Raised when streaming is not allowed for this user or bot.

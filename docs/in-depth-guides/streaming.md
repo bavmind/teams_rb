@@ -39,12 +39,13 @@ ctx.stream.on_close { |sent| Analytics.record_stream(sent.id) }
 
 ## Reuse and typed errors
 
-Emitting again after `close` starts a **new** streamed message on the same stream. If Teams stops a stream, the SDK raises typed errors:
+Emitting again after `close` starts a **new** streamed message on the same stream. If Teams rejects a stream, the SDK raises typed errors:
 
-- `Teams::StreamCancelledError` — the user cancelled (sticky: the next `emit` also raises)
 - `Teams::StreamNotAllowedError`, `Teams::TerminalStreamError` — terminal failures
 
-Chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams two-minute limit finalizes automatically by updating the streamed message in place.
+Chunk-send errors are recorded on the stream and surface when `close` sends the final message. A stream that exceeds the Teams ten-minute limit (counted from the first informative or content chunk) finalizes automatically by updating the streamed message in place.
+
+Teams no longer supports stopping a stream, so `canceled` always returns false and `Teams::StreamCancelledError` is never raised; both are deprecated.
 
 ## Gotchas
 

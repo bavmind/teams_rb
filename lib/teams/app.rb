@@ -302,8 +302,6 @@ module Teams
 
       body = activity.invoke? ? invoke_response_body(result) : nil
       Response.new(status: 200, body:)
-    rescue StreamCancelledError
-      Response.new(status: 200)
     end
 
     # Builds an Api::AgenticIdentity for proactive agentic operations: the

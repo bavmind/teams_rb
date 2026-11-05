@@ -10,7 +10,7 @@ module Teams
   # queue to drain before sending the final message.
   class HttpStream
     STREAM_CHANNEL_DATA_KEYS = %w[streamId streamType streamSequence].freeze
-    NON_RETRYABLE_ERRORS = [TerminalStreamError, StreamCancelledError].freeze
+    NON_RETRYABLE_ERRORS = [TerminalStreamError].freeze
 
     attr_reader :app, :conversation_reference
 
@@ -31,7 +31,6 @@ module Teams
       @send_retry = { max_attempts: 5, delay: 0.5, max_delay: 30.0, jitter: :full }
       reset_state
       @result = nil
-      @canceled = false
       @timed_out = false
       @chunk_handlers = []
       @close_handlers = []
@@ -51,8 +50,12 @@ module Teams
       self
     end
 
+    # Deprecated: Teams no longer supports stopping a stream, so this is
+    # always false, like the TypeScript, Python, and .NET SDKs.
     def canceled
-      @canceled
+      warn("HttpStream#canceled is deprecated: Teams no longer supports stopping a stream.",
+        uplevel: 1, category: :deprecated)
+      false
     end
 
     def timed_out
@@ -72,13 +75,11 @@ module Teams
     end
 
     def emit(activity_or_text)
-      raise StreamCancelledError, "Stream has been cancelled." if canceled
-
       activity = normalize_activity(activity_or_text)
 
       @mutex.synchronize do
         # Emitting after close reopens the stream: start a new streamed
-        # message on the same instance. The canceled flag stays sticky.
+        # message on the same instance.
         reset_for_next_stream if closed
 
         @queue << activity
@@ -110,12 +111,9 @@ module Teams
 
     def close
       return @result if closed
-      return nil if canceled
       return nil if no_content_pending?
 
       return nil unless wait_for_flush
-
-      return nil if canceled
 
       unless @id
         app.logger&.warn("no stream id set, cannot close stream")
@@ -134,7 +132,7 @@ module Teams
           outbound = final_stream_activity
           Api::SentActivity.merge(outbound, send_with_retry(outbound, @send_retry))
         rescue StreamTimedOutError
-          # The final streamed send tripped the two-minute limit. Update the
+          # The final streamed send tripped the ten-minute limit. Update the
           # original message in place with the buffered content instead of
           # posting a duplicate.
           send_final
@@ -177,7 +175,6 @@ module Teams
       loop do
         done = @mutex.synchronize { @queue.empty? && !@flushing && !@id.nil? }
         return true if done
-        return true if canceled
 
         if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
           app.logger&.warn("Timeout while waiting for the stream queue to flush, cannot close stream")
@@ -209,8 +206,8 @@ module Teams
     end
 
     # Drains the whole queue under the mutex, then sends outside it so emit
-    # never blocks on HTTP. Send failures are classified (sticky canceled /
-    # timed_out flags) and logged, not raised: errors surface from close,
+    # never blocks on HTTP. Send failures are classified (sticky timed_out
+    # flag) and logged, not raised: errors surface from close,
     # matching the TypeScript and Python flush behavior.
     def flush_cycle
       @mutex.synchronize { @flushing = true }
@@ -248,8 +245,6 @@ module Teams
         chunk["textFormat"] = text_format if text_format
         send_stream_chunk(chunk)
       end
-    rescue StreamCancelledError
-      nil
     rescue StandardError => error
       app.logger&.error("stream flush failed: #{error.class}: #{error.message}")
     ensure
@@ -355,10 +350,7 @@ module Teams
     end
 
     # Retries transient failures like the TypeScript and Python streamers.
-    # Typed stream errors are never retried; upstream also retries cancelled
-    # sends (their cancellation error sits outside the terminal hierarchy),
-    # but those attempts only re-raise after backoff delays, so Ruby skips
-    # them for the same visible behavior without the waits.
+    # Typed stream errors are never retried.
     def send_with_retry(activity, options)
       Common::Retry.call(**options, non_retryable: NON_RETRYABLE_ERRORS, logger: app.logger) do
         send_activity(activity)
@@ -366,8 +358,6 @@ module Teams
     end
 
     def send_activity(activity)
-      raise StreamCancelledError, "Stream has been cancelled." if canceled
-
       body = activity.dup
       body["from"] = conversation_reference.bot.to_h if conversation_reference.bot
       body["conversation"] = conversation_reference.conversation.to_h
@@ -404,9 +394,6 @@ module Teams
       if normalized.include?("exceeded streaming time")
         @timed_out = true
         raise StreamTimedOutError, message.empty? ? "Stream exceeded the streaming time limit." : message
-      elsif normalized.include?("cancel")
-        @canceled = true
-        raise StreamCancelledError, message.empty? ? "Teams channel stopped the stream." : message
       elsif normalized.include?("not allowed") && !normalized.include?("completed streamed message")
         raise StreamNotAllowedError, message.empty? ? "Streaming is not allowed for the user or bot." : message
       else

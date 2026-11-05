@@ -671,7 +671,7 @@ class AppTest < Minitest::Test
   # the mapping surfaces through close's final send, like TypeScript/Python.
   def test_stream_maps_403_error_messages_to_typed_errors
     {
-      "Content stream was canceled by user." => Teams::StreamCancelledError,
+      "Content stream was canceled by user." => Teams::TerminalStreamError,
       "Content stream is not allowed" => Teams::StreamNotAllowedError,
       "Content stream is not allowed on an already completed streamed message" => Teams::TerminalStreamError,
       "Message size too large" => Teams::TerminalStreamError,
@@ -698,31 +698,30 @@ class AppTest < Minitest::Test
     assert_instance_of Teams::TerminalStreamError, error
   end
 
-  def test_stream_not_allowed_does_not_mark_canceled_or_timed_out
+  def test_stream_not_allowed_does_not_mark_timed_out
     api = FakeApi.new
     api.send_filter = ->(payload) { raise stream_http_error("Content stream is not allowed") if payload["type"] == "message" }
     stream = build_stream(api)
 
     stream.emit "hi"
     assert_raises(Teams::StreamNotAllowedError) { stream.close }
-    refute stream.canceled
     refute stream.timed_out
   end
 
-  def test_stream_cancel_is_sticky_and_close_returns_nil
+  def test_stream_cancel_error_no_longer_stops_the_stream
     api = FakeApi.new
     api.send_filter = ->(_payload) { raise stream_http_error("Content stream was canceled by user.") }
     stream = build_stream(api)
 
-    # The cancelling 403 lands on the flusher thread and is swallowed there;
-    # the sticky flag is the observable, like TypeScript/Python.
+    # The 403 lands on the flusher thread and is logged there; it no longer
+    # marks the stream canceled, so later emits keep working.
     stream.emit "hi"
-    wait_until { stream.canceled }
-    assert_nil stream.close
-
+    wait_until { stream.count.zero? }
     api.send_filter = nil
-    error = assert_raises(Teams::StreamCancelledError) { stream.emit "again" }
-    assert_equal "Stream has been cancelled.", error.message
+    stream.emit "again"
+
+    assert_equal "message", stream.close.type
+    refute stream.canceled
   end
 
   def test_stream_chunk_timeout_is_swallowed_and_close_updates_in_place
