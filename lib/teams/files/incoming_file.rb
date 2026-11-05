@@ -14,7 +14,10 @@ module Teams
       # name: display name including extension when known.
       # scope: the conversation type the file arrived in ("personal", ...).
       # source: where the SDK found the file; only "botActivity" today.
-      # attachment_style: "file" (sent as a file attachment).
+      # attachment_style: "file" (sent as a file attachment) or "inlineImage"
+      #   (pasted into the message; named "image-<attachment id>" with an
+      #   extension only for PNG, JPEG, GIF, or WebP; content_url is then its
+      #   Bot API location).
       # unique_id: the OneDrive/ODSP identifier when reported (for
       #   correlation and logging, not retrieval).
       # content_type: the file's MIME type when the source provides one;
@@ -29,7 +32,8 @@ module Teams
         :content_url, :raw
 
       def initialize(name:, scope:, source:, downloader:, unique_id: nil, content_type: nil, extension: nil,
-        attachment_style: "file", content_url: nil, raw: nil, download_url: nil, credential: nil)
+        attachment_style: "file", content_url: nil, raw: nil, download_url: nil, credential: nil,
+        bot_api_credential: nil, inline_image_base_name: nil)
         @name = name
         @scope = scope
         @source = source
@@ -42,6 +46,8 @@ module Teams
         @download_url = download_url
         @downloader = downloader
         @credential = credential
+        @bot_api_credential = bot_api_credential
+        @inline_image_base_name = inline_image_base_name
         @prior_fetch_succeeded = false
       end
 
@@ -59,8 +65,8 @@ module Teams
       def download
         data = +"".b
         opened = fetch { |chunk| data << chunk }
-        DownloadedFile.new(bytes: data, content_type: opened.content_type, filename: name,
-          source_url: opened.source_url)
+        filename, content_type = downloaded_type(data, opened.content_type)
+        DownloadedFile.new(bytes: data, content_type:, filename:, source_url: opened.source_url)
       end
 
       # download, then decode (UTF-8 by default, lossy). Re-fetches each call.
@@ -83,10 +89,29 @@ module Teams
 
       def fetch(&on_chunk)
         opened = @downloader.fetch(
-          target, prior_fetch_succeeded: @prior_fetch_succeeded, credential: @credential, &on_chunk
+          target,
+          prior_fetch_succeeded: @prior_fetch_succeeded,
+          credential: @credential,
+          bot_api_credential: @bot_api_credential,
+          &on_chunk
         )
         @prior_fetch_succeeded = true
         opened
+      end
+
+      # For an inline image, recognized bytes decide the name and type, then
+      # the listing's: Teams can return a different format from the hint (a
+      # pasted GIF downloads as a static PNG).
+      def downloaded_type(data, response_content_type)
+        return [name, response_content_type] unless attachment_style == "inlineImage"
+
+        sniffed = InlineImage.sniff_format(data)
+        if sniffed && @inline_image_base_name
+          naming = InlineImage.naming(@inline_image_base_name, sniffed)
+          return [naming.name, naming.content_type]
+        end
+
+        [name, content_type || InlineImage::OCTET_STREAM]
       end
 
       def target

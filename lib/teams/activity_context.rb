@@ -12,7 +12,8 @@ module Teams
 
     attr_reader :app, :activity, :conversation_reference, :extra, :stream
 
-    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil, files_credential: nil)
+    def initialize(app:, activity:, conversation_reference:, extra: {}, stream: nil, api: nil, files_credential: nil,
+      files_bot_api_credential: nil)
       @app = app
       @activity = activity
       @conversation_reference = conversation_reference
@@ -20,6 +21,7 @@ module Teams
       @stream = stream
       @api = api
       @files_credential = files_credential
+      @files_bot_api_credential = files_bot_api_credential
     end
 
     def ref
@@ -44,11 +46,15 @@ module Teams
       @api || app.api
     end
 
-    # The uploaded files on the inbound activity, as Files::IncomingFile
-    # handles. See Files::FilesAccessor.
+    # The uploaded files and pasted inline images on the inbound activity, as
+    # Files::IncomingFile handles. See Files::FilesAccessor.
     def files
       @files ||= Files::FilesAccessor.new(
-        activity, downloader: app.files_downloader, credential: @files_credential, logger: log
+        activity,
+        downloader: app.files_downloader,
+        credential: @files_credential,
+        bot_api_credential: @files_bot_api_credential,
+        logger: log
       )
     end
 

@@ -19,6 +19,11 @@ module Teams
     # Graph read happens, base_url_root the Graph host root.
     GraphCredential = Struct.new(:actor, :token, :base_url_root, keyword_init: true)
 
+    # The Bot API credential for reading pasted inline images: the turn's API
+    # token (an agentic identity reads as itself), resolved lazily, and the
+    # activity's service URL — the token is only ever sent under it.
+    BotApiCredential = Struct.new(:actor, :token, :service_url, keyword_init: true)
+
     # Fetches inbound file bytes, keyed on the conversation scope so every
     # scope's receive path extends this one place, like the TypeScript,
     # Python, and .NET dispatchers.
@@ -49,6 +54,50 @@ module Teams
         actor == "agentic_user" && %w[groupChat channel].include?(scope)
       end
 
+      SINGLE_DOT_SEGMENTS = %w[. %2e].freeze
+      DOUBLE_DOT_SEGMENTS = %w[.. .%2e %2e. %2e%2e].freeze
+      PERCENT_ESCAPE = /%[0-9A-Fa-f]{2}/
+
+      # Whether url is under service_url: both https, the same origin, and a
+      # path inside the service URL's path. Dot segments (including
+      # percent-encoded dots) are resolved first so a path cannot climb out;
+      # scheme and host compare case-insensitively, the path case-sensitively
+      # apart from percent-escape hex digits.
+      def self.under_service_url?(url, service_url)
+        return false if service_url.nil? || service_url.empty?
+
+        target = URI.parse(url)
+        base = URI.parse(service_url)
+        return false unless base.scheme&.downcase == "https"
+        return false unless [target.scheme&.downcase, target.host&.downcase, target.port] ==
+          [base.scheme.downcase, base.host&.downcase, base.port]
+
+        # Exactly one trailing slash, so /amer cannot match /americas.
+        base_path = normalize_percent_escapes("#{resolve_dot_segments(base.path).sub(%r{/+\z}, "")}/")
+        normalize_percent_escapes(resolve_dot_segments(target.path)).start_with?(base_path)
+      rescue URI::Error
+        false
+      end
+
+      def self.resolve_dot_segments(path)
+        resolved = []
+        path.to_s.sub(%r{\A/+}, "").split("/", -1).each do |segment|
+          folded = segment.downcase
+          next if SINGLE_DOT_SEGMENTS.include?(folded)
+
+          if DOUBLE_DOT_SEGMENTS.include?(folded)
+            resolved.pop
+            next
+          end
+          resolved << segment
+        end
+        "/#{resolved.join("/")}"
+      end
+
+      def self.normalize_percent_escapes(path)
+        path.gsub(PERCENT_ESCAPE, &:upcase)
+      end
+
       def initialize(connection: nil, logger: nil)
         @connection = connection || Faraday.new
         @logger = logger
@@ -59,7 +108,13 @@ module Teams
       # only where graph_route_open? allows. A download URL outside personal
       # keeps the scope error: Graph is never substituted for a URL the
       # platform supplied.
-      def fetch(target, prior_fetch_succeeded: false, credential: nil, &on_chunk)
+      def fetch(target, prior_fetch_succeeded: false, credential: nil, bot_api_credential: nil, &on_chunk)
+        # Inline images live on the Bot API, so neither file route nor its
+        # scope restriction applies.
+        if target.attachment_style == "inlineImage"
+          return fetch_inline_image(target, credential: bot_api_credential, &on_chunk)
+        end
+
         if target.scope == "personal"
           return fetch_personal(target, prior_fetch_succeeded:, credential:, &on_chunk)
         end
@@ -129,6 +184,50 @@ module Teams
         end
 
         opened(url, response, target)
+      end
+
+      # Reads an inline image from the Bot API with the turn's Bot API token,
+      # sent only to a URL under the activity's service URL.
+      def fetch_inline_image(target, credential:, &on_chunk)
+        url = target.content_url
+        raise Error, "cannot download inline image: no content URL is available" unless url
+        raise Error, "cannot download inline image: content URL must use https" unless url.downcase.start_with?("https://")
+        raise Error, "cannot download inline image: no Bot API token is available" unless credential
+        unless self.class.under_service_url?(url, credential.service_url)
+          raise Error, "cannot download inline image: content URL is not under the activity's service URL"
+        end
+
+        actor = credential.actor
+        token = credential.token ? credential.token.call.to_s.strip : ""
+        raise Error, "cannot download inline image: no Bot API token is available" if token.empty?
+
+        @logger&.debug("files: reading inline image bytes from the Bot API as '#{actor}'")
+        response = get_following_https_redirects(url, { "Authorization" => "Bearer #{token}" }, &on_chunk)
+        if response.status == 415
+          raise InlineImageTransformationError.new(
+            response.status, actor, service_error(response.error_body), service_error_code(response.error_body)
+          )
+        end
+        if [401, 403].include?(response.status)
+          raise InlineImageAccessError.new(response.status, actor, service_error(response.error_body))
+        end
+        unless success?(response.status)
+          details = service_error(response.error_body)
+          message = "failed to download inline image as '#{actor}': #{response.status} #{response.reason_phrase}".strip
+          raise Error, details ? "#{message} (#{details})" : message
+        end
+
+        opened(url, response, target)
+      end
+
+      def service_error_code(raw)
+        return nil if raw.nil? || raw.empty?
+
+        envelope = JSON.parse(raw.dup.force_encoding(Encoding::UTF_8).scrub)
+        code = envelope.dig("error", "code") if envelope.is_a?(Hash) && envelope["error"].is_a?(Hash)
+        code.is_a?(String) && !code.strip.empty? ? code.strip : nil
+      rescue JSON::ParserError
+        nil
       end
 
       # Resolves the token without raising: an acquisition failure degrades to

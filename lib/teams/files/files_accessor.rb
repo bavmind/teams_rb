@@ -15,23 +15,37 @@ module Teams
     # IncomingFile#raw.
     class FilesAccessor
       # credential is the turn's Files::GraphCredential, used for files that
-      # arrive with only a content URL (agentic users).
-      def initialize(activity, downloader:, credential: nil, logger: nil)
+      # arrive with only a content URL (agentic users); bot_api_credential the
+      # Files::BotApiCredential that reads pasted inline images.
+      def initialize(activity, downloader:, credential: nil, bot_api_credential: nil, logger: nil)
         @activity = activity
         @downloader = downloader
         @credential = credential
+        @bot_api_credential = bot_api_credential
         @logger = logger
       end
 
-      # The files on the activity. attachment_style: "file" filters by how a
-      # file was attached.
+      # The uploaded files and pasted inline images on the activity.
+      # attachment_style: "file" or "inlineImage" filters by how each was
+      # attached. An inline image not hosted under the activity's service URL
+      # is skipped with a warning.
       def list(attachment_style: nil)
         return [] unless @activity.message?
-        return [] if attachment_style && attachment_style != "file"
 
         scope = detect_scope
-        attachments.each_with_index.filter_map do |attachment, index|
-          to_incoming_file(attachment, index, scope)
+        items = attachments
+        hints = attachment_style == "file" ? {} : inline_image_hints(items)
+        items.each_with_index.filter_map do |attachment, index|
+          image_id = inline_image_id(attachment)
+          # Checked before mapping, so an excluded style is never mapped and
+          # never logs.
+          next if attachment_style && attachment_style != (image_id ? "inlineImage" : "file")
+
+          if image_id
+            to_inline_image(attachment, image_id, index, scope, hints)
+          else
+            to_incoming_file(attachment, index, scope)
+          end
         end
       end
 
@@ -48,6 +62,56 @@ module Teams
 
       def detect_scope
         @activity.conversation&.conversation_type || "personal"
+      end
+
+      # Format hints for inline images, keyed by attachment id, from the
+      # message's HTML attachments.
+      def inline_image_hints(items)
+        items.each_with_object({}) do |attachment, hints|
+          next unless attachment["contentType"] == "text/html" && attachment["content"].is_a?(String)
+
+          hints.merge!(InlineImage.parse_hints(attachment["content"]))
+        end
+      end
+
+      # The inline image id when the attachment is an image/* at a Bot API
+      # inline image path, otherwise nil.
+      def inline_image_id(attachment)
+        content_type = attachment["contentType"]
+        content_url = attachment["contentUrl"]
+        return nil unless content_type.is_a?(String) && content_type.downcase.start_with?("image/")
+        return nil unless content_url.is_a?(String)
+
+        InlineImage.image_id(content_url)
+      end
+
+      def to_inline_image(attachment, id, index, scope, hints)
+        content_url = attachment["contentUrl"]
+        unless Downloader.under_service_url?(content_url, @activity.service_url)
+          @logger&.warn(
+            "files: skipping inline image attachment at index #{index}; its location is not on the activity's service URL"
+          )
+          return nil
+        end
+
+        hint = hints[id]
+        format = hint ? InlineImage.format_from_hint(hint) : InlineImage.format_from_content_type(attachment["contentType"])
+        base_name = "image-#{id}"
+        naming = InlineImage.naming(base_name, format)
+
+        IncomingFile.new(
+          name: naming.name,
+          content_type: naming.content_type,
+          extension: naming.extension,
+          scope:,
+          source: "botActivity",
+          attachment_style: "inlineImage",
+          content_url:,
+          raw: attachment,
+          inline_image_base_name: base_name,
+          downloader: @downloader,
+          bot_api_credential: @bot_api_credential
+        )
       end
 
       def to_incoming_file(attachment, index, scope)

@@ -140,6 +140,60 @@ module Teams
     end
   end
 
+  # The Teams service could not convert a pasted image for download (415).
+  # Some formats, such as BMP and AVIF, cannot be converted; the same image
+  # sent as a file attachment downloads normally. code is the service's error
+  # code (e.g. "TransformationFailed").
+  class InlineImageTransformationError < FileError
+    attr_reader :status, :actor, :details, :code
+
+    def initialize(status, actor = nil, details = nil, code = nil)
+      reason = code ? "status #{status}, code #{code}" : "status #{status}"
+      message = "cannot download inline image: the Teams service could not convert it for download (#{reason}). " \
+        "Some image formats, such as BMP and AVIF, cannot be converted by the Teams service, so Teams shows a " \
+        "placeholder, and they cannot be downloaded. Ask the user to send the image as a file attachment instead"
+      message = "#{message} (service said: #{details})" if details
+      super(message)
+      @status = status
+      @actor = actor
+      @details = details
+      @code = code
+    end
+  end
+
+  # The Bot API refused the token presented for a pasted image: 401 means
+  # the token was rejected, 403 that the identity may not read the image.
+  # Inline images are read with the turn's Bot API token, not Graph.
+  class InlineImageAccessError < FileError
+    include FileActorGuidance
+
+    attr_reader :status, :actor, :details
+
+    def initialize(status, actor = nil, details = nil)
+      message = "cannot download inline image: #{guidance(status, actor)}"
+      message = "#{message} (service said: #{details})" if details
+      super(message)
+      @status = status
+      @actor = actor
+      @details = details
+    end
+
+    private
+
+    def guidance(status, actor)
+      as_who = describe_actor(actor)
+      case status
+      when 401
+        "the Bot API token presented for #{as_who} was rejected (status 401). " \
+          "It may have expired, or been issued for the wrong audience or tenant"
+      when 403
+        "access was denied for #{as_who} (status 403). The identity is not allowed to read the image"
+      else
+        "the Bot API token presented for #{as_who} was rejected with status #{status}"
+      end
+    end
+  end
+
   # A failed Microsoft Graph request; code carries the Graph error code
   # (e.g. "Authorization_RequestDenied") and body the full error payload.
   class GraphError < Error

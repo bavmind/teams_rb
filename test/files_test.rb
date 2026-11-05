@@ -330,6 +330,124 @@ class FilesTest < Minitest::Test
     ], recorded
   end
 
+  IMAGE_ID = "0-wus-d1-0123abcd"
+  IMAGE_URL = "https://smba.trafficmanager.net/amer/v3/attachments/#{IMAGE_ID}/views/original"
+
+  def test_inline_images_are_listed_with_hint_naming
+    files = accessor(activity([html_attachment(IMAGE_ID => "png"), inline_image_attachment])).list
+
+    assert_equal 1, files.length
+    image = files.first
+    assert_equal "image-#{IMAGE_ID}.png", image.name
+    assert_equal "png", image.extension
+    assert_equal "image/png", image.content_type
+    assert_equal "inlineImage", image.attachment_style
+    assert_equal IMAGE_URL, image.content_url
+    assert_equal inline_image_attachment, image.raw
+  end
+
+  def test_inline_image_format_falls_back_to_content_type_and_unknown_formats_stay_untyped
+    from_type = accessor(activity([inline_image_attachment(content_type: "image/jpeg")])).first
+    unknown = accessor(activity([html_attachment(IMAGE_ID => "bmp"), inline_image_attachment(content_type: "image/jpeg")])).first
+
+    assert_equal ["image-#{IMAGE_ID}.jpg", "image/jpeg"], [from_type.name, from_type.content_type]
+    assert_equal ["image-#{IMAGE_ID}", nil, "application/octet-stream"], [unknown.name, unknown.extension, unknown.content_type]
+  end
+
+  def test_attachment_style_filters_files_and_inline_images
+    files = accessor(activity([file_attachment, inline_image_attachment]))
+
+    assert_equal ["file", "inlineImage"], files.list.map(&:attachment_style)
+    assert_equal ["report.pdf"], files.list(attachment_style: "file").map(&:name)
+    assert_equal ["inlineImage"], files.list(attachment_style: "inlineImage").map(&:attachment_style)
+    assert_equal "inlineImage", files.first(attachment_style: "inlineImage").attachment_style
+  end
+
+  def test_inline_images_off_the_service_url_are_skipped
+    elsewhere = inline_image_attachment(content_url: "https://evil.example.com/v3/attachments/#{IMAGE_ID}/views/original")
+    climbing = inline_image_attachment(content_url: "https://smba.trafficmanager.net/amer/../emea/v3/attachments/#{IMAGE_ID}/views/original")
+
+    assert_empty accessor(activity([elsewhere, climbing])).list
+  end
+
+  def test_under_service_url_resolves_dot_segments_and_requires_the_same_https_origin
+    base = "https://smba.trafficmanager.net/amer/"
+    check = ->(url, service_url = base) { Teams::Files::Downloader.under_service_url?(url, service_url) }
+
+    assert check.call("https://smba.trafficmanager.net/amer/v3/attachments/x/views/original")
+    assert check.call("https://SMBA.trafficmanager.net/amer/./v3/x", "https://smba.trafficmanager.net/amer")
+    assert check.call("https://smba.trafficmanager.net/a%2fb/v3/x", "https://smba.trafficmanager.net/a%2Fb")
+    refute check.call("https://smba.trafficmanager.net/americas/v3/x", "https://smba.trafficmanager.net/amer")
+    refute check.call("https://smba.trafficmanager.net/amer/../emea/v3/x")
+    refute check.call("https://smba.trafficmanager.net/amer/%2E%2e/emea/v3/x")
+    refute check.call("https://other.example.com/amer/v3/x")
+    refute check.call("https://smba.trafficmanager.net:8443/amer/v3/x")
+    refute check.call("http://smba.trafficmanager.net/amer/v3/x", "http://smba.trafficmanager.net/amer/")
+    refute check.call("https://smba.trafficmanager.net/amer/v3/x", nil)
+  end
+
+  def test_inline_image_download_uses_the_turn_token_and_sniffed_format
+    seen = nil
+    @stubs.get(IMAGE_URL) do |env|
+      seen = env.request_headers["Authorization"]
+      [200, { "Content-Type" => "image/gif" }, "\x89PNG\r\n\x1a\nrest".b]
+    end
+
+    image = accessor(activity([html_attachment(IMAGE_ID => "gif"), inline_image_attachment]), bot_api_credential: bot_api_credential).first
+    downloaded = image.download
+
+    assert_equal "image-#{IMAGE_ID}.gif", image.name
+    assert_equal "Bearer bot-token", seen
+    assert_equal "image-#{IMAGE_ID}.png", downloaded.filename
+    assert_equal "image/png", downloaded.content_type
+  end
+
+  def test_unrecognized_inline_image_bytes_keep_the_listing_type
+    @stubs.get(IMAGE_URL) { [200, { "Content-Type" => "image/bmp" }, "BMbytes"] }
+
+    image = accessor(activity([html_attachment(IMAGE_ID => "png"), inline_image_attachment]), bot_api_credential: bot_api_credential).first
+
+    assert_equal ["image-#{IMAGE_ID}.png", "image/png"], image.download.then { |d| [d.filename, d.content_type] }
+  end
+
+  def test_inline_image_refusals_raise_typed_errors
+    image = -> { accessor(activity([inline_image_attachment]), bot_api_credential: bot_api_credential).first }
+
+    @stubs.get(IMAGE_URL) do
+      [415, {}, JSON.generate("error" => { "code" => "TransformationFailed", "message" => "Cannot convert" })]
+    end
+    error = assert_raises(Teams::InlineImageTransformationError) { image.call.download }
+    assert_equal [415, "TransformationFailed", "app"], [error.status, error.code, error.actor]
+    assert_equal "TransformationFailed: Cannot convert", error.details
+
+    stubs = Faraday::Adapter::Test::Stubs.new
+    stubs.get(IMAGE_URL) { [403, {}, ""] }
+    @downloader = Teams::Files::Downloader.new(connection: Faraday.new { |f| f.adapter(:test, stubs) })
+    error = assert_raises(Teams::InlineImageAccessError) { image.call.download }
+    assert_equal 403, error.status
+    assert_includes error.message, "not allowed to read the image"
+  end
+
+  def test_inline_image_download_requires_a_token_and_the_service_url
+    blank = accessor(activity([inline_image_attachment]), bot_api_credential: bot_api_credential(token: -> { "  " })).first
+    assert_includes assert_raises(Teams::Error) { blank.download }.message, "no Bot API token"
+
+    moved = accessor(activity([inline_image_attachment]),
+      bot_api_credential: bot_api_credential(service_url: "https://smba.trafficmanager.net/emea/")).first
+    assert_includes assert_raises(Teams::Error) { moved.download }.message, "not under the activity's service URL"
+  end
+
+  def test_app_resolves_the_turn_api_token_for_inline_images
+    app = Teams::App.new(api: FakeApi.new, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(nil))
+    turn_api = Teams::Api::Client.new(service_url: "https://smba.trafficmanager.net/amer/",
+      http: Teams::Common::HttpClient.new(token: -> { "turn-token" }))
+
+    credential = app.send(:files_bot_api_credential, activity([]), nil, turn_api)
+
+    assert_equal ["app", "https://smba.trafficmanager.net/amer/", "turn-token"],
+      [credential.actor, credential.service_url, credential.token.call]
+  end
+
   def test_ctx_files_lists_the_inbound_activity_files
     app = Teams::App.new(api: FakeApi.new, dangerously_allow_unauthenticated_requests: true, logger: Logger.new(nil))
     inbound = activity([file_attachment])
@@ -343,8 +461,23 @@ class FilesTest < Minitest::Test
 
   private
 
-  def accessor(activity, credential: nil)
-    Teams::Files::FilesAccessor.new(activity, downloader: @downloader, credential:)
+  def accessor(activity, credential: nil, bot_api_credential: nil)
+    Teams::Files::FilesAccessor.new(activity, downloader: @downloader, credential:, bot_api_credential:)
+  end
+
+  def bot_api_credential(token: -> { "bot-token" }, service_url: "https://smba.trafficmanager.net/amer/")
+    Teams::Files::BotApiCredential.new(actor: "app", token:, service_url:)
+  end
+
+  def inline_image_attachment(content_type: "image/*", content_url: IMAGE_URL)
+    { "contentType" => content_type, "contentUrl" => content_url }
+  end
+
+  def html_attachment(hints)
+    images = hints.map do |id, scope|
+      %(<img src="#{IMAGE_URL}" itemscope="#{scope}" itemtype="http://schema.skype.com/AMSImage" itemid="#{id}" alt="image">)
+    end
+    { "contentType" => "text/html", "content" => "<p>look #{images.join}</p>" }
   end
 
   def graph_credential(actor: "agentic_user", token: -> { files_token })

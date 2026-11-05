@@ -31,7 +31,18 @@ teams.on_message do |ctx|
 end
 ```
 
-`ctx.files.first` returns the first file or `nil`. Only uploaded files are listed — cards, mentions, and malformed file entries are skipped, never raised. Any file type sent as an upload is included.
+`ctx.files.first` returns the first file or `nil`. Uploaded files and images pasted inline are listed — cards, mentions, and malformed file entries are skipped, never raised. Any file type sent as an upload is included.
+
+Filter by how each item was attached:
+
+```ruby
+ctx.files.list(attachment_style: "file")         # uploaded files only
+ctx.files.list(attachment_style: "inlineImage")  # pasted images only
+```
+
+### Pasted inline images
+
+An image pasted into the message body is listed with `attachment_style` `"inlineImage"`, named `image-<attachment id>` with an extension (and `content_type`) only for PNG, JPEG, GIF, or WebP. Teams saves a pasted GIF as a static PNG, so it is listed as `.gif` but `download` reports the format the bytes actually are. Inline images are read from the Bot API with the same token the turn replies with, and only from under the activity's service URL — an image hosted anywhere else is skipped with a warning. Some formats, such as BMP and AVIF, cannot be converted by Teams and fail to download; the same image sent as a file attachment works.
 
 ### File metadata
 
@@ -79,6 +90,8 @@ All file errors inherit from `Teams::FileError`:
 | `Teams::FileUrlExpiredError` | The short-lived download link lapsed. | `reason`: `"first_fetch"` (no bytes were ever fetched; the file has to be sent again) or `"reread"` (an earlier download succeeded; reuse its `DownloadedFile`) |
 | `Teams::FileCredentialError` | The Graph read an agentic user's file needs was ruled out before the request: no token could be acquired, or the token carries no `Files.*`/`Sites.*` permission. | `actor`, `cause_detail` (why token acquisition failed, when it raised) |
 | `Teams::FileAccessError` | The storage service refused the Graph read. | `status` (`401`: the token was rejected; `403`: the identity lacks the grant — this also covers a file never shared with it and an item that does not exist), `actor`, `details` (the service's own words) |
+| `Teams::InlineImageTransformationError` | Teams could not convert a pasted image for download (`415`). | `status`, `code` (e.g. `"TransformationFailed"`), `details`, `actor` |
+| `Teams::InlineImageAccessError` | The Bot API refused the token presented for a pasted image. | `status` (`401` rejected token, `403` not allowed), `actor`, `details` |
 | `Teams::FileScopeNotSupportedError` | `download` was called on a file from a scope that cannot be downloaded yet. A traditional bot receives files only in personal chats. | `scope` |
 
 `actor` is `"agentic_user"` when the inbound activity carries an agentic identity, `"app"` otherwise.

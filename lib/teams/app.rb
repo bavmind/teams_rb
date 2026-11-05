@@ -299,7 +299,8 @@ module Teams
         conversation_reference:,
         api: turn_api,
         stream: HttpStream.new(app: self, conversation_reference:, api: turn_api),
-        files_credential: files_credential(activity, agentic_identity)
+        files_credential: files_credential(activity, agentic_identity),
+        files_bot_api_credential: files_bot_api_credential(activity, agentic_identity, turn_api)
       )
       result = run_handlers(context)
       context.stream.close
@@ -620,6 +621,20 @@ module Teams
         actor: agentic_identity ? "agentic_user" : "app",
         token:,
         base_url_root: @graph_base_url_root
+      )
+    end
+
+    # Inline images are read with the turn's Bot API token (the agentic
+    # identity's when the turn is scoped to one), resolved only on download
+    # and sent only under the activity's service URL.
+    def files_bot_api_credential(activity, agentic_identity, turn_api)
+      Files::BotApiCredential.new(
+        actor: agentic_identity ? "agentic_user" : "app",
+        service_url: activity.service_url,
+        token: lambda do
+          token = turn_api.http.token
+          token.respond_to?(:call) ? token.call : token
+        end
       )
     end
 
